@@ -60,7 +60,7 @@ fun ArrangeScreen(vm: MainViewModel, onDone: () -> Unit) {
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Text(
-            "Drag the clock and the weather to where you want them.",
+            "Drag the clock, the weather and the caption to where you want them.",
             color = Color.White,
             style = MaterialTheme.typography.bodyMedium,
         )
@@ -98,7 +98,7 @@ fun ArrangeScreen(vm: MainViewModel, onDone: () -> Unit) {
                 val sy = size.height / ph
                 val dash = PathEffect.dashPathEffect(floatArrayOf(14f, 10f))
                 val placed = s.placed ?: return@Canvas
-                listOf("clock" to placed.clock, "current" to placed.current, "forecast" to placed.forecast).forEach { (name, r) ->
+                listOf("clock" to placed.clock, "current" to placed.current, "forecast" to placed.forecast, "caption" to placed.caption).forEach { (name, r) ->
                     if (r == null) return@forEach
                     val pad = 6.dp.toPx()
                     drawRoundRect(

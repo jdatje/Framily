@@ -151,7 +151,7 @@ class ClockPainter(private val context: Context) {
         return Layout(RectF(cx - halfW, top, cx + halfW, bottom), cx, line1, line2, dateLine, size, dateSize)
     }
 
-    fun draw(canvas: Canvas, layout: Layout, style: ClockStyle, colors: PhotoColors) {
+    fun draw(canvas: Canvas, layout: Layout, style: ClockStyle, colors: PhotoColors, outline: Boolean = false) {
         val color = textColor(style, colors)
         val shadow = shadowColor(style, colors)
 
@@ -169,17 +169,17 @@ class ClockPainter(private val context: Context) {
         paint.color = color
         paint.setShadowLayer(layout.textSize * 0.04f, 0f, layout.textSize * 0.01f, shadow)
         if (style.stacked) {
-            canvas.drawText(hh, layout.centerX, layout.line1, paint)
-            canvas.drawText(mm, layout.centerX, layout.line2, paint)
+            Ink.text(canvas, hh, layout.centerX, layout.line1, paint, outline)
+            Ink.text(canvas, mm, layout.centerX, layout.line2, paint, outline)
         } else {
-            canvas.drawText("$hh:$mm", layout.centerX, layout.line1, paint)
+            Ink.text(canvas, "$hh:$mm", layout.centerX, layout.line1, paint, outline)
         }
 
         if (style.showDate) {
             datePaint.textSize = layout.dateSize
             datePaint.color = color
             datePaint.setShadowLayer(layout.dateSize * 0.2f, 0f, layout.dateSize * 0.05f, shadow)
-            canvas.drawText(dateText(), layout.centerX, layout.dateLine, datePaint)
+            Ink.text(canvas, dateText(), layout.centerX, layout.dateLine, datePaint, outline)
         }
     }
 
@@ -188,6 +188,7 @@ class ClockPainter(private val context: Context) {
             "white" -> Color.WHITE
             "black" -> 0xFF1C1B1F.toInt()
             "photo_dark" -> colors.dark
+            "auto" -> Color.WHITE // resolved per element by the renderer
             else -> colors.light
         }
 

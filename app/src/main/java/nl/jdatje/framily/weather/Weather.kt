@@ -19,7 +19,31 @@ data class WeatherData(
     val hours: List<WeatherHour>,
     val fetchedAt: Long,
     val place: String,
+    /** Sunrise/sunset pairs (epoch millis) for today and tomorrow. */
+    val sun: List<Pair<Long, Long>> = emptyList(),
 ) {
+    /** Night = before sunrise or after sunset; null when unknown. */
+    fun isNight(at: Long = System.currentTimeMillis()): Boolean? {
+        if (sun.isEmpty()) return null
+        val day = sun.firstOrNull { (rise, set) -> at in rise..set }
+        return day == null
+    }
+
+    /**
+     * A short heads-up about rain in the coming hours, e.g. "🌧 Rain from 17:00" or "🌤 Dry from 18:00".
+     * Null when nothing changes in the next 6 hours.
+     */
+    fun rainAlert(timeLabel: (Long) -> String, at: Long = System.currentTimeMillis()): String? {
+        val next = nextHours(6, at)
+        if (next.isEmpty()) return null
+        val nowWet = WeatherCodes.isWet(now(at).code)
+        return if (!nowWet) {
+            next.firstOrNull { WeatherCodes.isWet(it.code) || it.rain >= 60 }?.let { "🌧 Rain from ${timeLabel(it.time)}" }
+        } else {
+            next.firstOrNull { !WeatherCodes.isWet(it.code) && it.rain < 30 }?.let { "🌤 Dry from ${timeLabel(it.time)}" }
+        }
+    }
+
     /** The weather right now: the "current" block if fresh, otherwise the matching forecast hour. */
     fun now(at: Long = System.currentTimeMillis()): WeatherHour {
         if (at - fetchedAt < 90 * 60_000L) return WeatherHour(at, temp, code, isDay, 0)
@@ -33,6 +57,7 @@ data class WeatherData(
     fun toJson(): String = JSONObject().apply {
         put("temp", temp.toDouble()); put("code", code); put("isDay", isDay)
         put("fetchedAt", fetchedAt); put("place", place)
+        put("sun", JSONArray().apply { sun.forEach { (r, st) -> put(JSONArray().apply { put(r); put(st) }) } })
         put("hours", JSONArray().apply {
             hours.forEach { h ->
                 put(JSONObject().apply {
@@ -58,6 +83,9 @@ data class WeatherData(
                     },
                     fetchedAt = o.getLong("fetchedAt"),
                     place = o.optString("place"),
+                    sun = o.optJSONArray("sun")?.let { a ->
+                        (0 until a.length()).map { i -> a.getJSONArray(i).let { it.getLong(0) to it.getLong(1) } }
+                    } ?: emptyList(),
                 )
             }
         } catch (e: Exception) {
@@ -68,6 +96,9 @@ data class WeatherData(
 
 /** WMO weather codes (what Open-Meteo returns) to an emoji. */
 object WeatherCodes {
+    /** Drizzle, rain, showers or thunder. */
+    fun isWet(code: Int) = code in 51..67 || code in 80..82 || code in 95..99
+
     fun emoji(code: Int, isDay: Boolean): String = when (code) {
         0 -> if (isDay) "☀️" else "🌙"
         1 -> if (isDay) "🌤️" else "🌙"
@@ -108,6 +139,7 @@ object WeatherApi {
             "https://api.open-meteo.com/v1/forecast?latitude=%.4f&longitude=%.4f" +
                 "&current=temperature_2m,weather_code,is_day" +
                 "&hourly=temperature_2m,weather_code,precipitation_probability,is_day" +
+                "&daily=sunrise,sunset&forecast_days=2" +
                 "&forecast_hours=12&timezone=auto",
             lat, lon,
         )
@@ -133,7 +165,16 @@ object WeatherApi {
                 rain = rain?.optInt(i, 0) ?: 0,
             )
         }
+        val sun = o.optJSONObject("daily")?.let { d ->
+            val rise = d.getJSONArray("sunrise")
+            val set = d.getJSONArray("sunset")
+            (0 until minOf(rise.length(), set.length())).map { i ->
+                LocalDateTime.parse(rise.getString(i)).toInstant(offset).toEpochMilli() to
+                    LocalDateTime.parse(set.getString(i)).toInstant(offset).toEpochMilli()
+            }
+        } ?: emptyList()
         return WeatherData(
+            sun = sun,
             temp = cur.getDouble("temperature_2m").toFloat(),
             code = cur.getInt("weather_code"),
             isDay = cur.getInt("is_day") == 1,

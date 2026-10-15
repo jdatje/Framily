@@ -23,7 +23,12 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.core.content.ContextCompat
 import nl.jdatje.framily.CrashLog
+import nl.jdatje.framily.wallpaper.LookStyle
+import nl.jdatje.framily.weather.WeatherApps
 import nl.jdatje.framily.Permissions
 import nl.jdatje.framily.Scheduler
 import nl.jdatje.framily.data.Bucket
@@ -95,6 +100,11 @@ data class UiState(
     val weatherError: String? = null,
     /** Details of the last crash, shown so they can be copied. */
     val crashReport: String? = null,
+    val look: LookStyle? = null,
+    val weatherAppLabel: String = "",
+    val onThisDay: Boolean = false,
+    val lockDifferent: Boolean = false,
+    val hasMediaLocation: Boolean = false,
     val familyCount: Int = 0,
     val familyOnly: Boolean = false,
 )
@@ -133,7 +143,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch { dataTrigger.debounce(150).collect { refreshData() } }
         viewModelScope.launch(Dispatchers.IO) {
             previewTrigger.conflate().collect {
-                _state.update { it.copy(clock = ClockStyle.from(prefs), weather = WeatherStyle.from(prefs)) }
+                _state.update { it.copy(clock = ClockStyle.from(prefs), weather = WeatherStyle.from(prefs), look = LookStyle.from(prefs)) }
                 refreshPreview()
             }
         }
@@ -234,6 +244,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     "${WeatherCodes.emoji(now.code, now.isDay)} ${now.temp.roundToInt()}° · updated $time"
                 },
                 hasLocation = WeatherRepo.hasLocationPermission(ctx),
+                look = LookStyle.from(prefs),
+                weatherAppLabel = WeatherApps.label(ctx, prefs.weatherApp),
+                onThisDay = prefs.onThisDay,
+                lockDifferent = prefs.lockDifferent,
+                hasMediaLocation = ContextCompat.checkSelfPermission(ctx, Manifest.permission.ACCESS_MEDIA_LOCATION) ==
+                    PackageManager.PERMISSION_GRANTED,
                 familyCount = FamilyIndex.familyCount(ctx),
                 familyOnly = prefs.familyOnly,
             )
@@ -254,6 +270,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val bmp = Bitmap.createBitmap(previewW, previewH, Bitmap.Config.ARGB_8888)
         val overlay = WallpaperRenderer.Overlay(
             style, clockPainter, WeatherStyle.from(prefs), WeatherRepo.current(ctx), weatherPainter,
+            LookStyle.from(prefs), prefs.captionText,
         )
         val placed = WallpaperRenderer.draw(Canvas(bmp), previewFrame, previewW, previewH, overlay)
         _state.update { it.copy(preview = bmp.asImageBitmap(), placed = placed) }
@@ -307,6 +324,39 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun setForecastVertical(on: Boolean) { prefs.forecastVertical = on }
     fun setClockAuto(on: Boolean) { prefs.clockAuto = on }
 
+    fun setBgStyle(v: String) { prefs.bgStyle = v }
+    fun setBgOpacity(v: Float) { prefs.bgOpacity = v }
+    fun setBgRound(v: Float) { prefs.bgRound = v }
+    fun setBgColor(v: String) { prefs.bgColor = v }
+    fun setBgClock(on: Boolean) { prefs.bgClock = on }
+    fun setOutline(on: Boolean) { prefs.textOutline = on }
+    fun setNightDim(on: Boolean) { prefs.nightDim = on }
+    fun setNightDimStrength(v: Float) { prefs.nightDimStrength = v }
+    fun setRainAlert(on: Boolean) { prefs.rainAlert = on }
+    fun setOnThisDay(on: Boolean) { prefs.onThisDay = on }
+    fun setLockDifferent(on: Boolean) {
+        prefs.lockDifferent = on
+        if (prefs.lockScreenEnabled) next()
+    }
+
+    fun setWeatherApp(pkg: String?) { prefs.weatherApp = pkg; refreshData() }
+
+    fun weatherApps(onResult: (List<WeatherApps.App>) -> Unit) = viewModelScope.launch(Dispatchers.IO) {
+        val list = WeatherApps.installed(ctx)
+        launch(Dispatchers.Main) { onResult(list) }
+    }
+
+    fun setCaption(on: Boolean) {
+        prefs.caption = on
+        viewModelScope.launch { Rotator.refreshCaption(ctx) }
+    }
+
+    /** After the photo-location permission was answered. */
+    fun onMediaLocationAnswered() {
+        viewModelScope.launch { Rotator.refreshCaption(ctx) }
+        refreshData()
+    }
+
     // ------------------------------------------------------------ Arrange screen (drag & drop)
 
     val previewSize: Pair<Int, Int> get() = previewW to previewH
@@ -319,6 +369,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val pad = previewW * 0.03f
         fun hit(r: android.graphics.RectF?) = r != null && x in (r.left - pad)..(r.right + pad) && y in (r.top - pad)..(r.bottom + pad)
         return when {
+            hit(p.caption) -> "caption"
             hit(p.current) -> "current"
             hit(p.forecast) -> "forecast"
             hit(p.clock) -> "clock"
@@ -337,6 +388,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 }
                 dragStart = prefs.clockX to prefs.clockPosition
             }
+            "caption" -> dragStart = prefs.captionX to prefs.captionY
             else -> {
                 if (prefs.weatherPlacement != "custom") {
                     // Start from where the weather is now.
@@ -360,6 +412,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             "clock" -> { prefs.clockX = x; prefs.clockPosition = (sy + dy).coerceIn(0.02f, 0.85f) }
             "current" -> { prefs.weatherX = x; prefs.weatherY = (sy + dy).coerceIn(0f, 1f) }
             "forecast" -> { prefs.forecastX = x; prefs.forecastY = (sy + dy).coerceIn(0f, 1f) }
+            "caption" -> { prefs.captionX = x; prefs.captionY = (sy + dy).coerceIn(0f, 1f) }
         }
     }
 
@@ -371,6 +424,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         prefs.clockAuto = true
         prefs.weatherPlacement = "sides"
         prefs.forecastVertical = false
+        prefs.captionX = 0.5f
+        prefs.captionY = 0.8f
     }
 
     fun setWeatherSource(source: String) {

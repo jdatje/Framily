@@ -46,6 +46,19 @@ Optional: current weather ("⛅ 18°") and a strip with the next 4 hours (time, 
 - Separate size sliders for the current weather and the forecast.
 - Data from [Open-Meteo](https://open-meteo.com) (free, no account), refreshed once an hour while online.
 
+## Readability & extras
+
+- **Background** behind weather and caption (optionally the clock): none, soft shape or frosted glass, with opacity, roundness and color.
+- **Outline** around letters, and **Auto contrast** (light or dark text per spot, based on the photo behind it).
+- **Night dimming** after sunset (sunrise/sunset of the weather location, otherwise 21:00–07:00).
+- **Rain alert** line ("🌧 Rain from 17:00" / "🌤 Dry from 18:00").
+- **Tap the weather** to open your weather app (Pixel Weather by default, or pick one).
+- **Caption** with month/year and place from the photo's GPS ("June 2021 · Texel"); draggable.
+- **On this day:** photos from this date in earlier years go first ("7 years ago today").
+- **Lock screen** can show a different photo than the home screen.
+
+Settings are grouped on pages (Photos & rotation, Clock, Weather, Readability, Extras, Scanning); look pages have a pinned live preview.
+
 ## Battery
 
 The first scan of a large library takes a while, so it is careful with the battery:

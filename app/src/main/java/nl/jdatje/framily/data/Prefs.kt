@@ -170,6 +170,69 @@ class Prefs private constructor(context: Context) {
         get() = sp.getString(WEATHER_DATA, null)
         set(v) = sp.edit { putString(WEATHER_DATA, v) }
 
+    // ---- readability
+    /** Background behind the weather: "none", "pill" (solid shape) or "frosted" (blurred photo). */
+    var bgStyle: String
+        get() = sp.getString(BG_STYLE, "frosted") ?: "frosted"
+        set(v) = sp.edit { putString(BG_STYLE, v) }
+    var bgOpacity: Float
+        get() = sp.getFloat(BG_OPACITY, 0.4f)
+        set(v) = sp.edit { putFloat(BG_OPACITY, v) }
+    /** 0 = square corners, 1 = fully round ends. */
+    var bgRound: Float
+        get() = sp.getFloat(BG_ROUND, 0.5f)
+        set(v) = sp.edit { putFloat(BG_ROUND, v) }
+    /** "auto" (opposite of the text), "dark" or "light". */
+    var bgColor: String
+        get() = sp.getString(BG_COLOR, "auto") ?: "auto"
+        set(v) = sp.edit { putString(BG_COLOR, v) }
+    /** Also a background behind the clock. */
+    var bgClock: Boolean
+        get() = sp.getBoolean(BG_CLOCK, false)
+        set(v) = sp.edit { putBoolean(BG_CLOCK, v) }
+    /** Thin edge around the letters. */
+    var textOutline: Boolean
+        get() = sp.getBoolean(TEXT_OUTLINE, false)
+        set(v) = sp.edit { putBoolean(TEXT_OUTLINE, v) }
+    var nightDim: Boolean
+        get() = sp.getBoolean(NIGHT_DIM, false)
+        set(v) = sp.edit { putBoolean(NIGHT_DIM, v) }
+    var nightDimStrength: Float
+        get() = sp.getFloat(NIGHT_DIM_STRENGTH, 0.3f)
+        set(v) = sp.edit { putFloat(NIGHT_DIM_STRENGTH, v) }
+
+    // ---- weather extras
+    var rainAlert: Boolean
+        get() = sp.getBoolean(RAIN_ALERT, true)
+        set(v) = sp.edit { putBoolean(RAIN_ALERT, v) }
+    /** App opened when tapping the weather (package name); null = Pixel Weather / web. */
+    var weatherApp: String?
+        get() = sp.getString(WEATHER_APP, null)
+        set(v) = sp.edit { putString(WEATHER_APP, v) }
+
+    // ---- photo extras
+    var caption: Boolean
+        get() = sp.getBoolean(CAPTION, false)
+        set(v) = sp.edit { putBoolean(CAPTION, v) }
+    var captionX: Float
+        get() = sp.getFloat(CAPTION_X, 0.5f)
+        set(v) = sp.edit { putFloat(CAPTION_X, v) }
+    var captionY: Float
+        get() = sp.getFloat(CAPTION_Y, 0.8f)
+        set(v) = sp.edit { putFloat(CAPTION_Y, v) }
+    /** The caption of the photo on screen, e.g. "June 2021 · Texel". */
+    var captionText: String?
+        get() = sp.getString(CAPTION_TEXT, null)
+        set(v) = sp.edit { putString(CAPTION_TEXT, v) }
+    /** Photos from this date in earlier years go first. */
+    var onThisDay: Boolean
+        get() = sp.getBoolean(ON_THIS_DAY, false)
+        set(v) = sp.edit { putBoolean(ON_THIS_DAY, v) }
+    /** Lock screen gets a different photo than the home screen. */
+    var lockDifferent: Boolean
+        get() = sp.getBoolean(LOCK_DIFFERENT, false)
+        set(v) = sp.edit { putBoolean(LOCK_DIFFERENT, v) }
+
     /** Put people in front of the clock. */
     var depthEnabled: Boolean
         get() = sp.getBoolean(DEPTH, true)
@@ -244,6 +307,22 @@ class Prefs private constructor(context: Context) {
         const val FORECAST_Y = "forecast_y"
         const val CLOCK_X = "clock_x"
         const val CLOCK_AUTO = "clock_auto"
+        const val BG_STYLE = "bg_style"
+        const val BG_OPACITY = "bg_opacity"
+        const val BG_ROUND = "bg_round"
+        const val BG_COLOR = "bg_color"
+        const val BG_CLOCK = "bg_clock"
+        const val TEXT_OUTLINE = "text_outline"
+        const val NIGHT_DIM = "night_dim"
+        const val NIGHT_DIM_STRENGTH = "night_dim_strength"
+        const val RAIN_ALERT = "rain_alert"
+        const val WEATHER_APP = "weather_app"
+        const val CAPTION = "caption"
+        const val CAPTION_X = "caption_x"
+        const val CAPTION_Y = "caption_y"
+        const val CAPTION_TEXT = "caption_text"
+        const val ON_THIS_DAY = "on_this_day"
+        const val LOCK_DIFFERENT = "lock_different"
         const val WEATHER_SOURCE = "weather_source"
         const val WEATHER_LAT = "weather_lat"
         const val WEATHER_LON = "weather_lon"
@@ -257,6 +336,8 @@ class Prefs private constructor(context: Context) {
             WEATHER, WEATHER_FORECAST, WEATHER_PLACEMENT, WEATHER_DATA,
             WEATHER_SIZE, FORECAST_SIZE, FORECAST_VERTICAL, WEATHER_X, WEATHER_Y, FORECAST_X, FORECAST_Y,
             CLOCK_X, CLOCK_AUTO,
+            BG_STYLE, BG_OPACITY, BG_ROUND, BG_COLOR, BG_CLOCK, TEXT_OUTLINE, NIGHT_DIM, NIGHT_DIM_STRENGTH,
+            RAIN_ALERT, CAPTION, CAPTION_X, CAPTION_Y, CAPTION_TEXT,
         )
         const val DEPTH = "depth_enabled"
         const val LOCK = "lock_screen"

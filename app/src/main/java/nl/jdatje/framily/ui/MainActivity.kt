@@ -35,6 +35,9 @@ class MainActivity : ComponentActivity() {
                 val locationLauncher = rememberLauncherForActivityResult(
                     ActivityResultContracts.RequestPermission()
                 ) { vm.updateWeather(force = true) }
+                val mediaLocationLauncher = rememberLauncherForActivityResult(
+                    ActivityResultContracts.RequestPermission()
+                ) { vm.onMediaLocationAnswered() }
                 var screen by rememberSaveable { mutableStateOf("main") }
                 if (screen == "family") {
                     FamilyScreen(familyVm) {
@@ -48,16 +51,19 @@ class MainActivity : ComponentActivity() {
                     return@FramilyTheme
                 }
                 MainScreen(
-                    vm = vm,
-                    onRequestPermissions = { launcher.launch(Permissions.requestList) },
-                    onOpenAppSettings = { openAppSettings() },
-                    onSetWallpaper = { openWallpaperPicker() },
-                    onRequestLocation = { locationLauncher.launch(Manifest.permission.ACCESS_COARSE_LOCATION) },
-                    onArrange = { screen = "arrange" },
-                    onOpenFamily = {
-                        familyVm.reload()
-                        screen = "family"
-                    },
+                    vm,
+                    MainActions(
+                        requestPermissions = { launcher.launch(Permissions.requestList) },
+                        openAppSettings = { openAppSettings() },
+                        setWallpaper = { openWallpaperPicker() },
+                        requestLocation = { locationLauncher.launch(Manifest.permission.ACCESS_COARSE_LOCATION) },
+                        requestMediaLocation = { mediaLocationLauncher.launch(Manifest.permission.ACCESS_MEDIA_LOCATION) },
+                        openFamily = {
+                            familyVm.reload()
+                            screen = "family"
+                        },
+                        arrange = { screen = "arrange" },
+                    ),
                 )
             }
         }

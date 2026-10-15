@@ -64,11 +64,13 @@ class WeatherPainter(private val context: Context) {
         val unit: Float,
         val hours: List<WeatherHour>,
         val showRain: Boolean,
+        /** Extra small line under the current weather (rain alert). */
+        val extra: String? = null,
     ) {
         /** The same part with its center at (cx, cy). */
         fun at(cx: Float, cy: Float) = Part(
             RectF(cx - rect.width() / 2, cy - rect.height() / 2, cx + rect.width() / 2, cy + rect.height() / 2),
-            vertical, unit, hours, showRain,
+            vertical, unit, hours, showRain, extra,
         )
 
         /** The same part with its top edge centered at (cx, top). */
@@ -105,18 +107,28 @@ class WeatherPainter(private val context: Context) {
 
     // ------------------------------------------------------------ current weather
 
-    fun measureCurrent(w: Int, style: WeatherStyle, clock: ClockStyle, data: WeatherData, vertical: Boolean): Part {
+    fun measureCurrent(
+        w: Int, style: WeatherStyle, clock: ClockStyle, data: WeatherData, vertical: Boolean, alert: String? = null,
+    ): Part {
         val unit = w * 0.075f * style.size
         val (icon, temp) = currentText(data)
         text.typeface = ClockFonts.typeface(context, clock.font)
         text.textSize = unit
         val iconW = text.measureText(icon)
         val tempW = text.measureText(temp)
-        val (pw, ph) = if (vertical) max(iconW, tempW) to unit * 2.5f else (iconW + unit * 0.3f + tempW) to unit * 1.3f
-        return Part(RectF(0f, 0f, pw, ph), vertical, unit, emptyList(), false)
+        var (pw, ph) = if (vertical) max(iconW, tempW) to unit * 2.5f else (iconW + unit * 0.3f + tempW) to unit * 1.3f
+        if (alert != null) {
+            small.textSize = unit * 0.42f
+            pw = max(pw, small.measureText(alert))
+            ph += unit * 0.42f * 1.5f
+        }
+        return Part(RectF(0f, 0f, pw, ph), vertical, unit, emptyList(), false, alert)
     }
 
-    fun drawCurrent(canvas: Canvas, part: Part, data: WeatherData, clock: ClockStyle, colors: PhotoColors) {
+    /** "🌧 Rain from 17:00" style line, or null. */
+    fun rainAlert(data: WeatherData): String? = data.rainAlert({ timeLabel(it) })
+
+    fun drawCurrent(canvas: Canvas, part: Part, data: WeatherData, clock: ClockStyle, colors: PhotoColors, outline: Boolean = false) {
         val (icon, temp) = currentText(data)
         val u = part.unit
         text.typeface = ClockFonts.typeface(context, clock.font)
@@ -127,11 +139,18 @@ class WeatherPainter(private val context: Context) {
         if (part.vertical) {
             text.textAlign = Paint.Align.CENTER
             canvas.drawText(icon, r.centerX(), r.top + u, text)
-            canvas.drawText(temp, r.centerX(), r.top + u * 2.2f, text)
+            Ink.text(canvas, temp, r.centerX(), r.top + u * 2.2f, text, outline)
         } else {
             text.textAlign = Paint.Align.LEFT
             canvas.drawText(icon, r.left, r.top + u, text)
-            canvas.drawText(temp, r.left + text.measureText(icon) + u * 0.3f, r.top + u, text)
+            Ink.text(canvas, temp, r.left + text.measureText(icon) + u * 0.3f, r.top + u, text, outline)
+        }
+        part.extra?.let { line ->
+            small.textSize = u * 0.42f
+            small.textAlign = Paint.Align.CENTER
+            small.color = text.color
+            small.setShadowLayer(u * 0.1f, 0f, u * 0.02f, ClockPainter.shadowColor(clock, colors))
+            Ink.text(canvas, line, r.centerX(), r.bottom - u * 0.12f, small, outline)
         }
     }
 
@@ -153,7 +172,7 @@ class WeatherPainter(private val context: Context) {
         return Part(RectF(0f, 0f, pw, ph), vertical, u, hours, showRain)
     }
 
-    fun drawForecast(canvas: Canvas, part: Part, clock: ClockStyle, colors: PhotoColors) {
+    fun drawForecast(canvas: Canvas, part: Part, clock: ClockStyle, colors: PhotoColors, outline: Boolean = false) {
         val u = part.unit
         val color = ClockPainter.textColor(clock, colors)
         val shadow = ClockPainter.shadowColor(clock, colors)
@@ -173,7 +192,7 @@ class WeatherPainter(private val context: Context) {
             part.hours.forEachIndexed { i, h ->
                 var y = r.top + unitH * i + timeSize
                 small.textSize = timeSize
-                canvas.drawText(timeLabel(h.time), r.centerX(), y, small)
+                Ink.text(canvas, timeLabel(h.time), r.centerX(), y, small, outline)
                 y += iconSize * 1.25f
                 // icon and temperature side by side
                 text.textSize = iconSize
@@ -187,12 +206,12 @@ class WeatherPainter(private val context: Context) {
                 text.textAlign = Paint.Align.LEFT
                 small.textAlign = Paint.Align.LEFT
                 canvas.drawText(icon, start, y, text)
-                canvas.drawText(temp, start + iconW + gap, y, small)
+                Ink.text(canvas, temp, start + iconW + gap, y, small, outline)
                 text.textAlign = Paint.Align.CENTER
                 small.textAlign = Paint.Align.CENTER
                 if (part.showRain && h.rain >= 20) {
                     small.textSize = timeSize
-                    canvas.drawText("${h.rain}%", r.centerX(), y + timeSize * 1.2f, small)
+                    Ink.text(canvas, "${h.rain}%", r.centerX(), y + timeSize * 1.2f, small, outline)
                 }
             }
         } else {
@@ -201,16 +220,16 @@ class WeatherPainter(private val context: Context) {
                 val x = r.left + colW * (i + 0.5f)
                 var y = r.top + timeSize
                 small.textSize = timeSize
-                canvas.drawText(timeLabel(h.time), x, y, small)
+                Ink.text(canvas, timeLabel(h.time), x, y, small, outline)
                 y += iconSize * 1.35f
                 text.textSize = iconSize
                 canvas.drawText(WeatherCodes.emoji(h.code, h.isDay), x, y, text)
                 y += u * 1.4f
                 small.textSize = u * 1.05f
-                canvas.drawText("${h.temp.roundToInt()}°", x, y, small)
+                Ink.text(canvas, "${h.temp.roundToInt()}°", x, y, small, outline)
                 if (part.showRain && h.rain >= 20) {
                     small.textSize = timeSize
-                    canvas.drawText("${h.rain}%", x, y + timeSize * 1.5f, small)
+                    Ink.text(canvas, "${h.rain}%", x, y + timeSize * 1.5f, small, outline)
                 }
             }
         }

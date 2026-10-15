@@ -16,7 +16,7 @@ android {
         minSdk = 33
         targetSdk = 35
         versionCode = buildNumber
-        versionName = "0.6.$buildNumber"
+        versionName = "0.7.$buildNumber"
 
         // Only the processor type modern phones (like the Pixel 9) use; keeps the app much smaller.
         ndk {
@@ -77,6 +77,7 @@ dependencies {
 
     implementation("androidx.work:work-runtime-ktx:2.10.0")
     implementation("androidx.palette:palette-ktx:1.0.0")
+    implementation("androidx.exifinterface:exifinterface:1.3.7")
 
     // On-device ML: everything runs on the phone, no photo is ever uploaded.
     // Face detection and the face-recognition runtime come from Google Play services (keeps the app small)

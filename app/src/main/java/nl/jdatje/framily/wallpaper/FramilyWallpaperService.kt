@@ -22,6 +22,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import nl.jdatje.framily.data.Prefs
 import nl.jdatje.framily.rotation.Rotator
+import nl.jdatje.framily.weather.WeatherApps
 import nl.jdatje.framily.weather.WeatherRepo
 import kotlin.math.abs
 
@@ -50,6 +51,8 @@ class FramilyWallpaperService : WallpaperService() {
         private var timeReceiverRegistered = false
         private var segmenter: DepthSegmenter? = null
 
+        /** Where the elements were drawn last, to know what a tap hits. */
+        private var placed: WallpaperRenderer.Placed? = null
         private var lastTapTime = 0L
         private var lastTapX = 0
         private var lastTapY = 0
@@ -112,8 +115,17 @@ class FramilyWallpaperService : WallpaperService() {
             return super.onCommand(action, x, y, z, extras, resultRequested)
         }
 
-        /** Double-tap on an empty spot of the home screen = next photo. */
+        /** Tap on the weather = open the weather app. Double-tap elsewhere = next photo. */
         private fun handleTap(x: Int, y: Int) {
+            val p = placed
+            val pad = width * 0.03f
+            fun hit(r: android.graphics.RectF?) =
+                r != null && x >= r.left - pad && x <= r.right + pad && y >= r.top - pad && y <= r.bottom + pad
+            if (prefs.weatherEnabled && p != null && (hit(p.current) || hit(p.forecast))) {
+                lastTapTime = 0
+                WeatherApps.open(ctx, prefs.weatherApp)
+                return
+            }
             val now = SystemClock.uptimeMillis()
             if (now - lastTapTime < 400 && abs(x - lastTapX) < 150 && abs(y - lastTapY) < 150) {
                 lastTapTime = 0
@@ -184,6 +196,7 @@ class FramilyWallpaperService : WallpaperService() {
             } ?: return
             val overlay = WallpaperRenderer.Overlay(
                 ClockStyle.from(prefs), clock, WeatherStyle.from(prefs), WeatherRepo.current(ctx), weatherPainter,
+                LookStyle.from(prefs), prefs.captionText,
             )
             var stillFading = false
             try {
@@ -193,11 +206,11 @@ class FramilyWallpaperService : WallpaperService() {
                 if (prev != null && t < 1f) {
                     WallpaperRenderer.draw(canvas, prev, width, height, overlay)
                     val save = canvas.saveLayerAlpha(null, (t * 255).toInt())
-                    WallpaperRenderer.draw(canvas, cur, width, height, overlay)
+                    placed = WallpaperRenderer.draw(canvas, cur, width, height, overlay)
                     canvas.restoreToCount(save)
                     stillFading = true
                 } else {
-                    WallpaperRenderer.draw(canvas, cur, width, height, overlay)
+                    placed = WallpaperRenderer.draw(canvas, cur, width, height, overlay)
                 }
             } finally {
                 holder.unlockCanvasAndPost(canvas)

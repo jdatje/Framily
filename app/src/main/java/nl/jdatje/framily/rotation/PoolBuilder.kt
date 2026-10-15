@@ -17,7 +17,13 @@ object PoolBuilder {
     /** A photo in the rotation, plus how many similar (lower scoring) photos it stands in for. */
     class Entry(val photo: Photo, var similar: Int = 0)
 
-    class Result(val entries: List<Entry>, val qualifying: Int, val unique: Int) {
+    class Result(
+        val entries: List<Entry>,
+        val qualifying: Int,
+        val unique: Int,
+        /** Every photo that qualifies (similar ones grouped), not only the top N. */
+        val allUnique: List<Photo> = emptyList(),
+    ) {
         val photos: List<Photo> get() = entries.map { it.photo }
     }
 
@@ -45,7 +51,7 @@ object PoolBuilder {
             val match = if (rule == null) null else kept.firstOrNull { similar(it.photo, photo, rule) }
             if (match != null) match.similar++ else kept += Entry(photo)
         }
-        return Result(kept.take(prefs.poolSize), qualifying = all.size, unique = kept.size)
+        return Result(kept.take(prefs.poolSize), qualifying = all.size, unique = kept.size, allUnique = kept.map { it.photo })
     }
 
     private fun similar(a: Photo, b: Photo, rule: Rule): Boolean {
