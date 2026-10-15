@@ -13,11 +13,16 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import nl.jdatje.framily.Permissions
 import nl.jdatje.framily.wallpaper.FramilyWallpaperService
 
 class MainActivity : ComponentActivity() {
     private val vm: MainViewModel by viewModels()
+    private val familyVm: FamilyViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -30,12 +35,24 @@ class MainActivity : ComponentActivity() {
                 val locationLauncher = rememberLauncherForActivityResult(
                     ActivityResultContracts.RequestPermission()
                 ) { vm.updateWeather(force = true) }
+                var screen by rememberSaveable { mutableStateOf("main") }
+                if (screen == "family") {
+                    FamilyScreen(familyVm) {
+                        screen = "main"
+                        vm.refreshData()
+                    }
+                    return@FramilyTheme
+                }
                 MainScreen(
                     vm = vm,
                     onRequestPermissions = { launcher.launch(Permissions.requestList) },
                     onOpenAppSettings = { openAppSettings() },
                     onSetWallpaper = { openWallpaperPicker() },
                     onRequestLocation = { locationLauncher.launch(Manifest.permission.ACCESS_COARSE_LOCATION) },
+                    onOpenFamily = {
+                        familyVm.reload()
+                        screen = "family"
+                    },
                 )
             }
         }

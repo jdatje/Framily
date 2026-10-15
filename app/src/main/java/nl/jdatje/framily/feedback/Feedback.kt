@@ -8,6 +8,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import nl.jdatje.framily.data.PhotoDb
+import nl.jdatje.framily.family.FamilyIndex
 import nl.jdatje.framily.rotation.Rotator
 
 object Feedback {
@@ -24,11 +25,16 @@ object Feedback {
             val db = PhotoDb.get(context)
             if (photoId >= 0) {
                 when (action) {
-                    NOT_FAMILY -> db.block(photoId, NOT_FAMILY)
+                    NOT_FAMILY -> {
+                        db.block(photoId, NOT_FAMILY)
+                        // Teach recognition: the faces taken for family on this photo aren't family.
+                        FamilyIndex.markPhotoNotFamily(context, photoId)
+                    }
                     NEVER -> db.block(photoId, NEVER)
                 }
             }
             Rotator.next(context)
+            if (action == NOT_FAMILY && photoId >= 0) FamilyIndex.rematch(context)
         }
     }
 }

@@ -4,6 +4,7 @@ import android.content.Context
 import nl.jdatje.framily.data.Photo
 import nl.jdatje.framily.data.PhotoDb
 import nl.jdatje.framily.data.Prefs
+import nl.jdatje.framily.family.FamilyIndex
 import nl.jdatje.framily.util.Fingerprint
 import kotlin.math.abs
 
@@ -36,7 +37,8 @@ object PoolBuilder {
 
     fun build(context: Context): Result {
         val prefs = Prefs.get(context)
-        val all = PhotoDb.get(context).qualifying(prefs.selectedBuckets, prefs.minFacePercent / 100f)
+        val familyOnly = prefs.familyOnly && FamilyIndex.familyCount(context) > 0
+        val all = PhotoDb.get(context).qualifying(prefs.selectedBuckets, prefs.minFacePercent / 100f, familyOnly)
         val rule = rule(prefs.dedupeLevel)
         val kept = ArrayList<Entry>()
         for (photo in all) { // best first, so the first of each group is its best photo

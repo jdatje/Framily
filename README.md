@@ -26,6 +26,17 @@ Every push to `main` builds a new APK automatically (Actions tab → "Build APK"
 3. **Similar photos:** every photo gets a visual fingerprint. Burst shots of the same moment (and copies, like the WhatsApp copy of your own photo) are grouped; only the best-scoring one is used. Strictness is a setting.
 4. **Rotation:** only the best N photos (setting). Every photo in the pool comes by before one repeats.
 
+## Family recognition
+
+1. During the scan every face gets a "face print" (192 numbers from the MobileFaceNet model, on the phone). Photos of the same person give similar prints.
+2. Framily groups faces that look alike. In **Family**, you name each group once ("Family" with a name, or "Not family"). Groups that look like someone you already named show "Yes, <name>".
+3. Every face is compared with the faces you named. A photo counts when a family member is in it and *their* face meets the minimum face size.
+4. "Not family" (notification, app, or a group) is remembered as a counter-example, so similar-looking people are skipped too. In a person's page you can tap faces that aren't them.
+
+The recognition strictness is adjustable (loose ↔ strict). Photos scanned by an earlier version get their faces analysed again by the next scan.
+
+Model: MobileFaceNet (`mobilefacenet.tflite`, BSD-3-Clause, see `assets/mobilefacenet-LICENSE.txt`), run through Google Play services' TensorFlow Lite; face detection also comes from Play services, which keeps the app small.
+
 ## Weather
 
 Optional: current weather ("⛅ 18°") and a strip with the next 4 hours (time, icon, temperature, chance of rain from 20%). It uses the clock's font, color and depth effect.
@@ -62,7 +73,7 @@ The lock screen option sets the same photo there without the Framily clock, sinc
 
 ## Roadmap
 
-- **Next:** face recognition so only family counts (enroll family members from a few photos; "Not family" feedback trains it).
+- **Done:** face recognition (see above).
 - **Later:** separate lock/home photos, "on this day" mode, adjustable score weights.
 
 ## Building it yourself

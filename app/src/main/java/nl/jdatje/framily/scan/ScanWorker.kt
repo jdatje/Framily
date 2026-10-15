@@ -17,6 +17,8 @@ import nl.jdatje.framily.Permissions
 import nl.jdatje.framily.data.MediaItem
 import nl.jdatje.framily.data.MediaRepo
 import nl.jdatje.framily.data.PhotoDb
+import nl.jdatje.framily.family.FaceEmbedder
+import nl.jdatje.framily.family.FamilyIndex
 import nl.jdatje.framily.data.Prefs
 import nl.jdatje.framily.rotation.PoolBuilder
 import nl.jdatje.framily.rotation.Rotator
@@ -75,14 +77,23 @@ class ScanWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
         val known = db.knownState()
         val todo = items.filter { known[it.id] != it.dateModified }
 
+        // Face recognition (needs Google Play services). Without it the scan still works; faces get
+        // recognized in a later scan.
+        val embedder = FaceEmbedder(ctx)
+        val canRecognize = embedder.ready()
+        // Photos with faces that were scanned before recognition existed: analyse their faces again.
+        val needFaces = if (canRecognize) db.missingEmbeddings(buckets) else emptySet()
+
         // Landscape photos are skipped without even opening them.
         val (landscape, portraitOrUnknown) = todo.partition { it.portraitByMetadata == false }
+        val todoIds = todo.map { it.id }.toHashSet()
         // Newest photos first, so recent ones show up quickly.
-        val toDecode = portraitOrUnknown.sortedByDescending { it.dateTaken }
+        val toDecode = (portraitOrUnknown + items.filter { it.id in needFaces && it.id !in todoIds })
+            .sortedByDescending { it.dateTaken }
         db.tx { landscape.forEach { db.upsert(it, Analysis.empty(false, it.width, it.height)) } }
 
         // Photos scanned by an older version only need a fingerprint, not a full analysis.
-        val needHash = db.missingHash(buckets)
+        val needHash = db.missingHash(buckets).filter { it !in needFaces }
 
         val total = toDecode.size + needHash.size
         var done = 0
@@ -114,7 +125,7 @@ class ScanWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
             progress()
         }
 
-        if (keepGoing) PhotoAnalyzer(ctx).use { analyzer ->
+        if (keepGoing) PhotoAnalyzer(ctx, embedder.takeIf { canRecognize }).use { analyzer ->
             for (chunk in toDecode.chunked(20)) {
                 val results = ArrayList<Pair<MediaItem, Analysis?>>()
                 for (item in chunk) {
@@ -140,6 +151,10 @@ class ScanWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
                 }
             }
         }
+
+        embedder.close()
+        // Update the face groups and who is family with what was found.
+        if (canRecognize && done > 0) FamilyIndex.rebuild(ctx)
 
         // Make sure something sensible is on screen.
         val pool = PoolBuilder.build(ctx).photos

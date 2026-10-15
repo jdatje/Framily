@@ -16,7 +16,7 @@ android {
         minSdk = 33
         targetSdk = 35
         versionCode = buildNumber
-        versionName = "0.4.$buildNumber"
+        versionName = "0.5.$buildNumber"
 
         // Only the processor type modern phones (like the Pixel 9) use; keeps the app much smaller.
         ndk {
@@ -57,6 +57,10 @@ android {
     packaging {
         jniLibs.useLegacyPackaging = true
     }
+    // The face-recognition model is read straight from the APK, so it must not be compressed.
+    androidResources {
+        noCompress += "tflite"
+    }
 }
 
 dependencies {
@@ -74,8 +78,10 @@ dependencies {
     implementation("androidx.work:work-runtime-ktx:2.10.0")
     implementation("androidx.palette:palette-ktx:1.0.0")
 
-    // On-device ML (models are bundled in the app, nothing is uploaded)
-    implementation("com.google.mlkit:face-detection:16.1.7")
+    // On-device ML: everything runs on the phone, no photo is ever uploaded.
+    // Face detection and the face-recognition runtime come from Google Play services (keeps the app small)
+    implementation("com.google.android.gms:play-services-mlkit-face-detection:17.1.0")
+    implementation("com.google.android.gms:play-services-tflite-java:16.4.0")
     implementation("com.google.mlkit:segmentation-selfie:16.0.0-beta6")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.9.0")
 

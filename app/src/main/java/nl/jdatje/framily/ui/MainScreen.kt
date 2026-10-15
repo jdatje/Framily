@@ -95,6 +95,7 @@ fun MainScreen(
     onOpenAppSettings: () -> Unit,
     onSetWallpaper: () -> Unit,
     onRequestLocation: () -> Unit,
+    onOpenFamily: () -> Unit,
 ) {
     val s by vm.state.collectAsStateWithLifecycle()
     var selected by remember { mutableStateOf<PoolBuilder.Entry?>(null) }
@@ -124,6 +125,7 @@ fun MainScreen(
                 item { WallpaperCard(onSetWallpaper) }
             }
             item { StatusCard(s, vm) }
+            item { FamilyCard(s, onOpenFamily) }
             item { RotationCard(s, vm) }
             item { ScanCard(s, vm) }
             item { ClockCard(s, vm) }
@@ -345,6 +347,21 @@ private fun RotationCard(s: UiState, vm: MainViewModel) {
 
         SwitchRow("Also on lock screen", "Same photo, without the Framily clock", s.lock) { vm.setLock(it) }
         SwitchRow("Double-tap home screen", "Shows the next photo", s.doubleTap) { vm.setDoubleTap(it) }
+    }
+}
+
+@Composable
+private fun FamilyCard(s: UiState, onOpen: () -> Unit) {
+    SectionCard("Family") {
+        Text(
+            when {
+                s.familyCount == 0 -> "Not set up yet: any clear face counts. Tell Framily who your family is, and only photos with them are used."
+                s.familyOnly -> "${s.familyCount} family member(s) · only photos with family are used"
+                else -> "${s.familyCount} family member(s) · \"only family\" is off, any clear face counts"
+            },
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        Button(onClick = onOpen) { Text(if (s.familyCount == 0) "Set up family" else "Manage family") }
     }
 }
 
@@ -672,7 +689,7 @@ private fun MaintenanceCard(s: UiState, vm: MainViewModel, onRescan: () -> Unit)
         }
         OutlinedButton(onClick = onRescan, enabled = s.hasMedia && !s.scanRunning) { Text("Rescan all photos") }
         Text(
-            "Face recognition (only your family) comes in a next version. \"Not family\" choices are saved so it can learn from them.",
+            "\"Not family\" answers teach face recognition, so similar-looking people are skipped too.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

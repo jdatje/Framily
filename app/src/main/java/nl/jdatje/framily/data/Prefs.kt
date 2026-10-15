@@ -31,6 +31,16 @@ class Prefs private constructor(context: Context) {
         get() = sp.getInt(DEDUPE, 1)
         set(v) = sp.edit { putInt(DEDUPE, v) }
 
+    /** Only photos with a recognized family member. */
+    var familyOnly: Boolean
+        get() = sp.getBoolean(FAMILY_ONLY, false)
+        set(v) = sp.edit { putBoolean(FAMILY_ONLY, v) }
+
+    /** How alike a face must be to a family member's (0.45 loose … 0.70 strict). */
+    var familyThreshold: Float
+        get() = sp.getFloat(FAMILY_THRESHOLD, 0.55f)
+        set(v) = sp.edit { putFloat(FAMILY_THRESHOLD, v) }
+
     /** 0 = gentle, 1 = normal, 2 = fast. */
     var scanSpeed: Int
         get() = sp.getInt(SCAN_SPEED, 0)
@@ -162,6 +172,8 @@ class Prefs private constructor(context: Context) {
         const val MIN_FACE = "min_face_percent"
         const val DEDUPE = "dedupe_level"
         const val SCAN_SPEED = "scan_speed"
+        const val FAMILY_ONLY = "family_only"
+        const val FAMILY_THRESHOLD = "family_threshold"
         const val SCAN_CHARGING = "scan_only_charging"
         const val CLOCK = "clock_enabled"
         const val CLOCK_POS = "clock_position"

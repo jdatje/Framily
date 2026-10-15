@@ -28,6 +28,7 @@ import nl.jdatje.framily.data.MediaRepo
 import nl.jdatje.framily.data.Photo
 import nl.jdatje.framily.data.PhotoDb
 import nl.jdatje.framily.data.Prefs
+import nl.jdatje.framily.family.FamilyIndex
 import nl.jdatje.framily.feedback.Feedback
 import nl.jdatje.framily.rotation.LockScreen
 import nl.jdatje.framily.rotation.PoolBuilder
@@ -87,6 +88,8 @@ data class UiState(
     val cityResults: List<City> = emptyList(),
     val citySearching: Boolean = false,
     val weatherError: String? = null,
+    val familyCount: Int = 0,
+    val familyOnly: Boolean = false,
 )
 
 @OptIn(FlowPreview::class)
@@ -171,8 +174,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             prefs.selectedBuckets = MediaRepo.defaultBuckets(buckets)
             prefs.bucketsInitialized = true
             Scheduler.scanNow(ctx) // first run: start right away
-        } else if (db.missingHash(prefs.selectedBuckets).isNotEmpty()) {
-            Scheduler.scanNow(ctx) // after an update: fingerprint photos scanned by the old version
+        } else if (db.missingHash(prefs.selectedBuckets).isNotEmpty() ||
+            db.missingEmbeddings(prefs.selectedBuckets).isNotEmpty()
+        ) {
+            Scheduler.scanNow(ctx) // after an update: give photos scanned by an old version the new data
         }
         _state.update { it.copy(buckets = buckets) }
     }
@@ -207,6 +212,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     "${WeatherCodes.emoji(now.code, now.isDay)} ${now.temp.roundToInt()}° · updated $time"
                 },
                 hasLocation = WeatherRepo.hasLocationPermission(ctx),
+                familyCount = FamilyIndex.familyCount(ctx),
+                familyOnly = prefs.familyOnly,
             )
         }
         refreshPreview()

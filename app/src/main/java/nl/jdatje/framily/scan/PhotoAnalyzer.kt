@@ -8,6 +8,8 @@ import android.net.Uri
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.face.FaceDetection
 import com.google.mlkit.vision.face.FaceDetectorOptions
+import com.google.mlkit.vision.face.FaceLandmark
+import nl.jdatje.framily.family.FaceEmbedder
 import kotlinx.coroutines.tasks.await
 import nl.jdatje.framily.util.Fingerprint
 import nl.jdatje.framily.util.ImageUtils
@@ -16,6 +18,9 @@ import kotlin.math.abs
 import kotlin.math.ln
 import kotlin.math.max
 import kotlin.math.min
+
+/** One face: where it is (fractions of the photo), how big, and its embedding. */
+class FaceInfo(val box: RectF, val ratio: Float, val embedding: FloatArray?)
 
 /** What the scan found in one photo. */
 data class Analysis(
@@ -30,6 +35,10 @@ data class Analysis(
     val sharp: Float,
     val score: Float,
     val phash: Long? = null,
+    /** Each face with its size and recognition embedding (null when recognition wasn't available). */
+    val faceInfos: List<FaceInfo> = emptyList(),
+    /** True when every face got an embedding. */
+    val embedded: Boolean = false,
 ) {
     companion object {
         fun empty(portrait: Boolean, width: Int, height: Int) =
@@ -43,7 +52,7 @@ data class Analysis(
  * Score parts: face size 25, sharpness 25, eyes open 15, smiling 15,
  * looking at the camera 10, faces well placed 10.
  */
-class PhotoAnalyzer(private val context: Context) : Closeable {
+class PhotoAnalyzer(private val context: Context, private val embedder: FaceEmbedder? = null) : Closeable {
 
     companion object {
         /** Raise this when the scoring changes; the app then rescans everything. */
@@ -66,6 +75,7 @@ class PhotoAnalyzer(private val context: Context) : Closeable {
         FaceDetectorOptions.Builder()
             .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_ACCURATE)
             .setClassificationMode(FaceDetectorOptions.CLASSIFICATION_MODE_ALL)
+            .setLandmarkMode(FaceDetectorOptions.LANDMARK_MODE_ALL) // eyes, to straighten faces for recognition
             .setMinFaceSize(0.05f)
             .build()
     )
@@ -120,9 +130,20 @@ class PhotoAnalyzer(private val context: Context) : Closeable {
                     0.15f * smile + 0.10f * frontal + 0.10f * position
                 )
 
+            val infos = significant.mapIndexed { i, f ->
+                val emb = embedder?.embed(
+                    bmp, f.boundingBox,
+                    f.getLandmark(FaceLandmark.LEFT_EYE)?.position,
+                    f.getLandmark(FaceLandmark.RIGHT_EYE)?.position,
+                )
+                FaceInfo(rects[i], f.boundingBox.height().toFloat() / h, emb)
+            }
+
             return Analysis(
                 true, w, h, significant.size, maxRatio, rects, smile, eyes, sharp, score,
                 phash = Fingerprint.dHash(bmp),
+                faceInfos = infos,
+                embedded = infos.all { it.embedding != null },
             )
         } finally {
             bmp.recycle()

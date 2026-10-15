@@ -9,7 +9,9 @@ import android.database.sqlite.SQLiteOpenHelper
 import android.graphics.RectF
 import android.net.Uri
 import android.provider.MediaStore
+import nl.jdatje.framily.family.FaceEmbedder
 import nl.jdatje.framily.scan.Analysis
+import nl.jdatje.framily.scan.FaceInfo
 import java.util.Locale
 
 /** A scanned photo that is (or could be) in the rotation. */
@@ -33,13 +35,15 @@ data class Photo(
     val dateTaken: Long,
     /** Visual fingerprint; similar-looking photos have similar values. Null = not computed yet. */
     val phash: Long?,
+    /** Height of the largest recognized family face divided by the photo height (0 = none). */
+    val familyRatio: Float = 0f,
 ) {
     val uri: Uri get() = ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id)
 }
 
 /** Remembers the scan result of every photo, so each photo is only analysed once. */
 class PhotoDb private constructor(context: Context) :
-    SQLiteOpenHelper(context, "framily.db", null, 2) {
+    SQLiteOpenHelper(context, "framily.db", null, 3) {
 
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
@@ -64,16 +68,48 @@ class PhotoDb private constructor(context: Context) :
                 blocked INTEGER NOT NULL DEFAULT 0,
                 block_reason TEXT,
                 last_shown INTEGER NOT NULL DEFAULT 0,
-                phash INTEGER
+                phash INTEGER,
+                embedded INTEGER NOT NULL DEFAULT 0,
+                family_ratio REAL NOT NULL DEFAULT 0
             )
             """.trimIndent()
         )
         db.execSQL("CREATE INDEX idx_pool ON photos(portrait, face_count, blocked, score)")
+        createFamilyTables(db)
+    }
+
+    /** Version 3: faces (with recognition data) and the people you name. */
+    private fun createFamilyTables(db: SQLiteDatabase) {
+        db.execSQL(
+            """
+            CREATE TABLE faces(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                photo_id INTEGER NOT NULL,
+                l REAL NOT NULL, t REAL NOT NULL, r REAL NOT NULL, b REAL NOT NULL,
+                ratio REAL NOT NULL,
+                emb BLOB,
+                person_id INTEGER,
+                cluster INTEGER,
+                match_id INTEGER
+            )
+            """.trimIndent()
+        )
+        db.execSQL("CREATE INDEX idx_faces_photo ON faces(photo_id)")
+        db.execSQL("CREATE INDEX idx_faces_cluster ON faces(cluster)")
+        db.execSQL(
+            "CREATE TABLE people(id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, family INTEGER NOT NULL DEFAULT 1)"
+        )
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
         // Version 2 added fingerprints for spotting similar photos. Existing scan results are kept.
         if (oldVersion < 2) db.execSQL("ALTER TABLE photos ADD COLUMN phash INTEGER")
+        // Version 3 added face recognition. Photos with faces get their faces analysed again by the next scan.
+        if (oldVersion < 3) {
+            db.execSQL("ALTER TABLE photos ADD COLUMN embedded INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE photos ADD COLUMN family_ratio REAL NOT NULL DEFAULT 0")
+            createFamilyTables(db)
+        }
     }
 
     fun tx(block: () -> Unit) {
@@ -114,6 +150,7 @@ class PhotoDb private constructor(context: Context) :
                 put("eyes", a.eyes)
                 put("sharp", a.sharp)
                 if (a.phash != null) put("phash", a.phash) else putNull("phash")
+                put("embedded", if (a.embedded) 1 else 0)
             }
         }
         val db = writableDatabase
@@ -121,6 +158,28 @@ class PhotoDb private constructor(context: Context) :
         if (updated == 0) {
             cv.put("id", item.id)
             db.insert("photos", null, cv)
+        }
+        replaceFaces(item.id, a?.faceInfos.orEmpty())
+    }
+
+    /** Store the faces of a photo, keeping names you gave them where the same face is found again. */
+    private fun replaceFaces(photoId: Long, faces: List<FaceInfo>) {
+        val db = writableDatabase
+        val old = db.rawQuery(
+            "SELECT l, t, r, b, person_id FROM faces WHERE photo_id=? AND person_id IS NOT NULL",
+            arrayOf(photoId.toString()),
+        ).use { c -> buildList { while (c.moveToNext()) add(RectF(c.getFloat(0), c.getFloat(1), c.getFloat(2), c.getFloat(3)) to c.getLong(4)) } }
+        db.delete("faces", "photo_id=?", arrayOf(photoId.toString()))
+        for (f in faces) {
+            val cv = ContentValues().apply {
+                put("photo_id", photoId)
+                put("l", f.box.left); put("t", f.box.top); put("r", f.box.right); put("b", f.box.bottom)
+                put("ratio", f.ratio)
+                f.embedding?.let { put("emb", FaceEmbedder.toBytes(it)) }
+                old.firstOrNull { (box, _) -> RectF.intersects(box, f.box) && kotlin.math.abs(box.centerX() - f.box.centerX()) < 0.05f }
+                    ?.let { (_, person) -> put("person_id", person) }
+            }
+            db.insert("faces", null, cv)
         }
     }
 
@@ -142,7 +201,12 @@ class PhotoDb private constructor(context: Context) :
             }
         }
         if (gone.isEmpty()) return
-        tx { gone.forEach { writableDatabase.delete("photos", "id=?", arrayOf(it.toString())) } }
+        tx {
+            gone.forEach {
+                writableDatabase.delete("photos", "id=?", arrayOf(it.toString()))
+                writableDatabase.delete("faces", "photo_id=?", arrayOf(it.toString()))
+            }
+        }
     }
 
     /** Makes the next scan re-analyse everything (used when the scoring changes). */
@@ -153,11 +217,13 @@ class PhotoDb private constructor(context: Context) :
     private fun marks(buckets: Set<String>) = buckets.joinToString(",") { "?" }
 
     /** Every photo that meets the criteria (portrait, big enough face, not removed), best first. */
-    fun qualifying(buckets: Set<String>, minRatio: Float): List<Photo> {
+    fun qualifying(buckets: Set<String>, minRatio: Float, familyOnly: Boolean = false): List<Photo> {
         if (buckets.isEmpty()) return emptyList()
         val args = arrayOf(minRatio.toString()) + buckets.toTypedArray()
+        // With "only my family", the size rule applies to the family member's face.
+        val sizeColumn = if (familyOnly) "family_ratio" else "face_ratio"
         return readableDatabase.rawQuery(
-            "SELECT * FROM photos WHERE portrait=1 AND face_count>0 AND blocked=0 AND face_ratio>=? " +
+            "SELECT * FROM photos WHERE portrait=1 AND face_count>0 AND blocked=0 AND $sizeColumn>=? " +
                 "AND bucket_id IN (${marks(buckets)}) ORDER BY score DESC",
             args,
         ).use { c -> buildList { while (c.moveToNext()) add(c.toPhoto()) } }
@@ -171,6 +237,16 @@ class PhotoDb private constructor(context: Context) :
                 "AND bucket_id IN (${marks(buckets)})",
             buckets.toTypedArray(),
         ).use { c -> buildList { while (c.moveToNext()) add(c.getLong(0)) } }
+    }
+
+    /** Photos with faces whose faces have no recognition data yet. */
+    fun missingEmbeddings(buckets: Set<String>): Set<Long> {
+        if (buckets.isEmpty()) return emptySet()
+        return readableDatabase.rawQuery(
+            "SELECT id FROM photos WHERE portrait=1 AND face_count>0 AND embedded=0 AND error=0 " +
+                "AND bucket_id IN (${marks(buckets)})",
+            buckets.toTypedArray(),
+        ).use { c -> buildSet { while (c.moveToNext()) add(c.getLong(0)) } }
     }
 
     fun setHash(id: Long, hash: Long) {
@@ -221,6 +297,7 @@ class PhotoDb private constructor(context: Context) :
         lastShown = getLong(getColumnIndexOrThrow("last_shown")),
         dateTaken = getLong(getColumnIndexOrThrow("date_taken")),
         phash = getColumnIndexOrThrow("phash").let { if (isNull(it)) null else getLong(it) },
+        familyRatio = getFloat(getColumnIndexOrThrow("family_ratio")),
     )
 
     companion object {

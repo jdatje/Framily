@@ -17,6 +17,11 @@
         android:label="@string/app_name"
         android:theme="@style/Theme.Framily">
 
+        <!-- Ask Play services to download the face detection model right after install -->
+        <meta-data
+            android:name="com.google.mlkit.vision.DEPENDENCIES"
+            android:value="face" />
+
         <activity
             android:name=".ui.MainActivity"
             android:exported="true">
