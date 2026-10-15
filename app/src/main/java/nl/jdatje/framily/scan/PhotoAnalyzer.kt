@@ -53,6 +53,15 @@ class PhotoAnalyzer(private val context: Context) : Closeable {
         private const val MIN_FACE = 0.04f
     }
 
+    /** Quick first look: most photos have no usable faces and stop here. */
+    private val quickDetector = FaceDetection.getClient(
+        FaceDetectorOptions.Builder()
+            .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_FAST)
+            .setMinFaceSize(0.05f)
+            .build()
+    )
+
+    /** Precise detection with smile/eyes, only for photos that passed the quick look. */
     private val detector = FaceDetection.getClient(
         FaceDetectorOptions.Builder()
             .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_ACCURATE)
@@ -62,13 +71,20 @@ class PhotoAnalyzer(private val context: Context) : Closeable {
     )
 
     suspend fun analyze(uri: Uri): Analysis? {
-        val bmp = ImageUtils.decodeScaled(context, uri, 960) ?: return null
+        val bmp = ImageUtils.decodeScaled(context, uri, 800) ?: return null
         try {
             val w = bmp.width
             val h = bmp.height
             if (h <= w * 1.05f) return Analysis.empty(false, w, h)
 
-            val faces = detector.process(InputImage.fromBitmap(bmp, 0)).await()
+            val image = InputImage.fromBitmap(bmp, 0)
+            // Slightly lower bar than MIN_FACE, so the precise pass gets the borderline cases.
+            val quick = quickDetector.process(image).await()
+            if (quick.none { it.boundingBox.height().toFloat() / h >= MIN_FACE * 0.8f }) {
+                return Analysis.empty(true, w, h)
+            }
+
+            val faces = detector.process(image).await()
             val significant = faces.filter { it.boundingBox.height().toFloat() / h >= MIN_FACE }
             if (significant.isEmpty()) return Analysis.empty(true, w, h)
 
@@ -144,6 +160,7 @@ class PhotoAnalyzer(private val context: Context) : Closeable {
     }
 
     override fun close() {
+        quickDetector.close()
         detector.close()
     }
 }

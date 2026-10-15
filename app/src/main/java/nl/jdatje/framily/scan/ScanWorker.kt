@@ -7,12 +7,14 @@ import android.provider.MediaStore
 import android.util.Log
 import androidx.work.CoroutineWorker
 import androidx.work.ForegroundInfo
+import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import nl.jdatje.framily.Notifications
 import nl.jdatje.framily.Permissions
+import nl.jdatje.framily.data.MediaItem
 import nl.jdatje.framily.data.MediaRepo
 import nl.jdatje.framily.data.PhotoDb
 import nl.jdatje.framily.data.Prefs
@@ -30,6 +32,7 @@ class ScanWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
     companion object {
         const val DONE = "done"
         const val TOTAL = "total"
+        const val PAUSED = "paused"
         private const val TAG = "ScanWorker"
     }
 
@@ -37,7 +40,10 @@ class ScanWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
 
     private fun foregroundInfo(done: Int, total: Int) = ForegroundInfo(
         Notifications.ID_SCAN,
-        Notifications.scanNotification(applicationContext, done, total),
+        Notifications.scanNotification(
+            applicationContext, done, total,
+            stop = WorkManager.getInstance(applicationContext).createCancelPendingIntent(id),
+        ),
         ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,
     )
 
@@ -79,11 +85,21 @@ class ScanWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
         val needHash = db.missingHash(buckets)
 
         val total = toDecode.size + needHash.size
-        setProgress(workDataOf(DONE to 0, TOTAL to total))
         var done = 0
+        var paused = false
+        suspend fun progress() = setProgress(workDataOf(DONE to done, TOTAL to total, PAUSED to paused))
+        progress()
+
+        val governor = ScanGovernor(ctx, prefs.scanSpeed, prefs.scanOnlyCharging)
+        val report: suspend (ScanGovernor.Pause) -> Unit = { p ->
+            paused = p == ScanGovernor.Pause.WARM
+            progress()
+        }
+        var keepGoing = true
 
         for (chunk in needHash.chunked(50)) {
-            if (isStopped) break
+            keepGoing = governor.beforeNext({ isStopped }, report)
+            if (!keepGoing) break
             val hashes = chunk.mapNotNull { id ->
                 val uri = ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id)
                 val bmp = ImageUtils.decodeScaled(ctx, uri, 256) ?: return@mapNotNull null
@@ -95,14 +111,16 @@ class ScanWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
             }
             db.tx { hashes.forEach { (id, h) -> db.setHash(id, h) } }
             done += chunk.size
-            setProgress(workDataOf(DONE to done, TOTAL to total))
+            progress()
         }
 
-        PhotoAnalyzer(ctx).use { analyzer ->
+        if (keepGoing) PhotoAnalyzer(ctx).use { analyzer ->
             for (chunk in toDecode.chunked(20)) {
-                if (isStopped) break
-                val results = chunk.map { item ->
-                    item to try {
+                val results = ArrayList<Pair<MediaItem, Analysis?>>()
+                for (item in chunk) {
+                    keepGoing = governor.beforeNext({ isStopped }, report)
+                    if (!keepGoing) break
+                    results += item to try {
                         analyzer.analyze(item.uri)
                     } catch (e: Exception) {
                         Log.w(TAG, "Failed on ${item.id}: ${e.message}")
@@ -110,8 +128,9 @@ class ScanWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
                     }
                 }
                 db.tx { results.forEach { (item, a) -> db.upsert(item, a) } }
-                done += chunk.size
-                setProgress(workDataOf(DONE to done, TOTAL to total))
+                done += results.size
+                progress()
+                if (!keepGoing) break
                 if (done % 200 < chunk.size) tryForeground(done, total)
                 // First run: show a wallpaper as soon as there is a usable photo.
                 if (prefs.currentPhotoId < 0 &&
@@ -127,6 +146,7 @@ class ScanWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
         if (pool.isNotEmpty() && pool.none { it.id == prefs.currentPhotoId }) {
             Rotator.next(ctx)
         }
-        Result.success()
+        // Stopped to save battery: try again later (it picks up where it left off).
+        if (!keepGoing && !isStopped) Result.retry() else Result.success()
     }
 }

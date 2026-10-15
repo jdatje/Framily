@@ -31,6 +31,15 @@ class Prefs private constructor(context: Context) {
         get() = sp.getInt(DEDUPE, 1)
         set(v) = sp.edit { putInt(DEDUPE, v) }
 
+    /** 0 = gentle, 1 = normal, 2 = fast. */
+    var scanSpeed: Int
+        get() = sp.getInt(SCAN_SPEED, 0)
+        set(v) = sp.edit { putInt(SCAN_SPEED, v) }
+
+    var scanOnlyCharging: Boolean
+        get() = sp.getBoolean(SCAN_CHARGING, true)
+        set(v) = sp.edit { putBoolean(SCAN_CHARGING, v) }
+
     var clockEnabled: Boolean
         get() = sp.getBoolean(CLOCK, true)
         set(v) = sp.edit { putBoolean(CLOCK, v) }
@@ -108,6 +117,8 @@ class Prefs private constructor(context: Context) {
         const val POOL = "pool_size"
         const val MIN_FACE = "min_face_percent"
         const val DEDUPE = "dedupe_level"
+        const val SCAN_SPEED = "scan_speed"
+        const val SCAN_CHARGING = "scan_only_charging"
         const val CLOCK = "clock_enabled"
         const val CLOCK_POS = "clock_position"
         const val CLOCK_FONT = "clock_font"

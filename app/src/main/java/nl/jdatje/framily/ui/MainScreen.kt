@@ -120,6 +120,7 @@ fun MainScreen(
             }
             item { StatusCard(s, vm) }
             item { RotationCard(s, vm) }
+            item { ScanCard(s, vm) }
             item { ClockCard(s, vm) }
             item { FoldersCard(s, vm) }
 
@@ -226,16 +227,28 @@ private fun StatusCard(s: UiState, vm: MainViewModel) {
     SectionCard("Status") {
         if (s.scanRunning) {
             val total = s.scanTotal
-            Text(if (total > 0) "Scanning photos: ${s.scanDone} of $total" else "Preparing scan…")
+            Text(
+                when {
+                    s.scanPaused -> "Scan paused: your phone is warm. It continues when it has cooled down."
+                    total > 0 -> "Scanning photos: ${s.scanDone} of $total"
+                    else -> "Preparing scan…"
+                }
+            )
             if (total > 0) {
                 LinearProgressIndicator(progress = { s.scanDone / total.toFloat() }, modifier = Modifier.fillMaxWidth())
             } else {
                 LinearProgressIndicator(Modifier.fillMaxWidth())
             }
             Text(
-                "Tip: plug in your phone. You can close the app, the scan continues.",
+                "You can close the app, the scan continues in the background.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        } else if (s.scanWaiting) {
+            Text(
+                if (s.scanOnlyCharging) "Scan waiting: plug in your phone to continue."
+                else "Scan paused to save battery. It continues later.",
+                color = MaterialTheme.colorScheme.primary,
             )
         }
         Text(
@@ -277,7 +290,7 @@ private fun StatusCard(s: UiState, vm: MainViewModel) {
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FilledTonalButton(onClick = { vm.next() }, enabled = s.pool.isNotEmpty()) { Text("Next photo") }
-            if (s.scanRunning) {
+            if (s.scanRunning || s.scanWaiting) {
                 OutlinedButton(onClick = { vm.stopScan() }) { Text("Stop scan") }
             } else {
                 OutlinedButton(onClick = { vm.scanNow() }, enabled = s.hasMedia) { Text("Scan now") }
@@ -326,6 +339,40 @@ private fun RotationCard(s: UiState, vm: MainViewModel) {
 
         SwitchRow("Also on lock screen", "Same photo, without the Framily clock", s.lock) { vm.setLock(it) }
         SwitchRow("Double-tap home screen", "Shows the next photo", s.doubleTap) { vm.setDoubleTap(it) }
+    }
+}
+
+private val scanSpeeds = listOf(
+    0 to "Gentle",
+    1 to "Normal",
+    2 to "Fast",
+)
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ScanCard(s: UiState, vm: MainViewModel) {
+    SectionCard("Scanning") {
+        SwitchRow(
+            "Only while charging",
+            "Pauses when you unplug, continues when you plug in again",
+            s.scanOnlyCharging,
+        ) { vm.setScanOnlyCharging(it) }
+        Label("Speed")
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            scanSpeeds.forEach { (speed, label) ->
+                FilterChip(selected = s.scanSpeed == speed, onClick = { vm.setScanSpeed(speed) }, label = { Text(label) })
+            }
+        }
+        Text(
+            when (s.scanSpeed) {
+                0 -> "Takes longer, barely uses battery. Best with a slow charger."
+                1 -> "A balance between speed and battery use."
+                else -> "As fast as possible. Use a fast charger."
+            } + " Always: slower while you use the phone, slows down when the battery drops while plugged in, " +
+                "pauses when the phone gets warm.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 

@@ -26,6 +26,16 @@ Every push to `main` builds a new APK automatically (Actions tab → "Build APK"
 3. **Similar photos:** every photo gets a visual fingerprint. Burst shots of the same moment (and copies, like the WhatsApp copy of your own photo) are grouped; only the best-scoring one is used. Strictness is a setting.
 4. **Rotation:** only the best N photos (setting). Every photo in the pool comes by before one repeats.
 
+## Battery
+
+The first scan of a large library takes a while, so it is careful with the battery:
+
+- **Only while charging** (default on): pauses when unplugged, continues when plugged in again.
+- **Speed:** Gentle (default) / Normal / Fast — how long it rests between photos.
+- Always: slower while the screen is on, slows down when the battery drops even though it's plugged in (slow charger), pauses when the phone gets warm, and stops below 30% when running on battery.
+- A quick, cheap face check runs first; the precise (heavier) one only for photos that actually have faces.
+- Stop it anytime from the app or the scan notification. It always continues where it left off.
+
 ## Feedback
 
 - **Double-tap** an empty spot on the home screen: next photo (depends on the launcher passing taps through).

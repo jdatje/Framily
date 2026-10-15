@@ -70,8 +70,9 @@ object Notifications {
         NotificationManagerCompat.from(context).notify(ID_CURRENT, n)
     }
 
-    fun scanNotification(context: Context, done: Int, total: Int): Notification =
+    fun scanNotification(context: Context, done: Int, total: Int, stop: PendingIntent? = null): Notification =
         NotificationCompat.Builder(context, CH_SCAN)
+            .apply { if (stop != null) addAction(0, "Stop scan", stop) }
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle("Looking through your photos")
             .setContentText(if (total > 0) "$done of $total" else "Preparing…")

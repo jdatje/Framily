@@ -16,7 +16,7 @@ android {
         minSdk = 33
         targetSdk = 35
         versionCode = buildNumber
-        versionName = "0.2.$buildNumber"
+        versionName = "0.3.$buildNumber"
 
         // Only the processor type modern phones (like the Pixel 9) use; keeps the app much smaller.
         ndk {

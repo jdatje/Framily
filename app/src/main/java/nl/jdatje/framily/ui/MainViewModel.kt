@@ -49,6 +49,12 @@ data class UiState(
     val buckets: List<Bucket> = emptyList(),
     val selectedBuckets: Set<String> = emptySet(),
     val scanRunning: Boolean = false,
+    /** A scan is queued but waiting (for a charger, or to retry later). */
+    val scanWaiting: Boolean = false,
+    /** Paused because the phone is warm. */
+    val scanPaused: Boolean = false,
+    val scanSpeed: Int = 0,
+    val scanOnlyCharging: Boolean = true,
     val scanDone: Int = 0,
     val scanTotal: Int = 0,
     val scanned: Int = 0,
@@ -96,10 +102,19 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 .getWorkInfosFlow(WorkQuery.fromUniqueWorkNames(Scheduler.SCAN_NOW, Scheduler.SCAN_PERIODIC))
                 .collect { infos ->
                     val running = infos.firstOrNull { it.state == WorkInfo.State.RUNNING }
+                    val waiting = running == null && infos.any {
+                        it.state == WorkInfo.State.ENQUEUED && Scheduler.SCAN_NOW in it.tags
+                    }
                     val wasRunning = _state.value.scanRunning
                     val done = running?.progress?.getInt(ScanWorker.DONE, 0) ?: 0
                     val total = running?.progress?.getInt(ScanWorker.TOTAL, 0) ?: 0
-                    _state.update { it.copy(scanRunning = running != null, scanDone = done, scanTotal = total) }
+                    val paused = running?.progress?.getBoolean(ScanWorker.PAUSED, false) ?: false
+                    _state.update {
+                        it.copy(
+                            scanRunning = running != null, scanWaiting = waiting, scanPaused = paused,
+                            scanDone = done, scanTotal = total,
+                        )
+                    }
                     // Refresh counts now and then while scanning, and when it finishes.
                     if ((wasRunning && running == null) || done - lastRefreshAt >= 100) {
                         lastRefreshAt = done
@@ -160,6 +175,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 poolSize = prefs.poolSize,
                 minFace = prefs.minFacePercent,
                 dedupe = prefs.dedupeLevel,
+                scanSpeed = prefs.scanSpeed,
+                scanOnlyCharging = prefs.scanOnlyCharging,
                 lock = prefs.lockScreenEnabled,
                 doubleTap = prefs.doubleTapEnabled,
                 clock = ClockStyle.from(prefs),
@@ -192,6 +209,21 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun setMinFace(p: Int) { prefs.minFacePercent = p }
     fun setDedupe(level: Int) { prefs.dedupeLevel = level }
     fun setDoubleTap(on: Boolean) { prefs.doubleTapEnabled = on }
+
+    fun setScanSpeed(speed: Int) {
+        prefs.scanSpeed = speed
+        restartScanIfPending()
+    }
+
+    fun setScanOnlyCharging(on: Boolean) {
+        prefs.scanOnlyCharging = on
+        restartScanIfPending()
+    }
+
+    /** Apply changed scan settings right away (the scan continues where it was). */
+    private fun restartScanIfPending() = viewModelScope.launch(Dispatchers.IO) {
+        if (Scheduler.scanPending(ctx)) Scheduler.scanNow(ctx, restart = true)
+    }
 
     fun setClock(on: Boolean) { prefs.clockEnabled = on }
     fun setClockPos(p: Float) { prefs.clockPosition = p }
