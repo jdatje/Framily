@@ -21,6 +21,23 @@ class Foreground(
     private val maskW: Int,
     private val maskH: Int,
 ) {
+    /**
+     * Top of the main person's head, as a fraction of the height (null when nobody is found).
+     * Looks in the middle half of the image, where the main subject usually is.
+     */
+    fun personTop(): Float? = headTop
+
+    private val headTop: Float? by lazy {
+        val l = (maskW * 0.25f).roundToInt()
+        val r = (maskW * 0.75f).roundToInt()
+        for (y in 0 until (maskH * 0.9f).roundToInt()) {
+            var hit = 0
+            for (x in l until r) if (mask[y * maskW + x] > 0.5f) hit++
+            if (hit > (r - l) * 0.12f) return@lazy y.toFloat() / maskH
+        }
+        null
+    }
+
     /** Which part (0..1) of [rect] (screen pixels) is covered by people. */
     fun coverage(rect: RectF, screenW: Int, screenH: Int): Float {
         val l = (rect.left / screenW * maskW).roundToInt().coerceIn(0, maskW - 1)

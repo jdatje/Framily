@@ -42,7 +42,8 @@ Model: MobileFaceNet (`mobilefacenet.tflite`, BSD-3-Clause, see `assets/mobilefa
 Optional: current weather ("⛅ 18°") and a strip with the next 4 hours (time, icon, temperature, chance of rain from 20%). It uses the clock's font, color and depth effect.
 
 - **Location:** your phone's approximate location (updated whenever you open Framily, so it follows you when you travel) or a fixed city.
-- **Position:** right under the clock, or at its own height.
+- **Position:** beside the clock (current weather left, next hours right, vertically), under the clock, or anywhere: drag them on the **Arrange** screen.
+- Separate size sliders for the current weather and the forecast.
 - Data from [Open-Meteo](https://open-meteo.com) (free, no account), refreshed once an hour while online.
 
 ## Battery
@@ -64,6 +65,10 @@ The first scan of a large library takes a while, so it is careful with the batte
 ## Clock
 
 Fonts, stacked (07 / 50) or one line (07:50), size, color (from the photo, white or black), opacity, height and an optional date. The app shows a live preview using the real wallpaper code.
+
+**Position:** *Behind heads (auto)* places the clock so the main person's head covers its lower part, like on an iPhone; or a fixed height. On the **Arrange** screen you can drag the clock anywhere.
+
+While you drag a slider, a small floating preview shows the result.
 
 With **Depth effect** on, people are cut out of the photo and drawn over the clock. If they would cover too much of the time, the clock stays on top for that photo.
 

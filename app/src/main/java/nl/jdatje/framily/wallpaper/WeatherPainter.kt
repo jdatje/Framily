@@ -9,124 +9,209 @@ import android.text.format.DateFormat
 import nl.jdatje.framily.data.Prefs
 import nl.jdatje.framily.weather.WeatherCodes
 import nl.jdatje.framily.weather.WeatherData
+import nl.jdatje.framily.weather.WeatherHour
 import java.util.Date
+import kotlin.math.max
 import kotlin.math.roundToInt
 
 data class WeatherStyle(
     val enabled: Boolean,
     val forecast: Boolean,
-    /** "clock" or "separate". */
+    /** "under", "sides" or "custom". */
     val placement: String,
-    val position: Float,
+    val size: Float,
+    val forecastSize: Float,
+    val forecastVertical: Boolean,
+    val x: Float,
+    val y: Float,
+    val forecastX: Float,
+    val forecastY: Float,
 ) {
     companion object {
-        fun from(p: Prefs) = WeatherStyle(p.weatherEnabled, p.weatherForecast, p.weatherPlacement, p.weatherPosition)
+        fun from(p: Prefs) = WeatherStyle(
+            enabled = p.weatherEnabled,
+            forecast = p.weatherForecast,
+            placement = p.weatherPlacement,
+            size = p.weatherSize,
+            forecastSize = p.forecastSize,
+            forecastVertical = p.forecastVertical,
+            x = p.weatherX,
+            y = p.weatherY,
+            forecastX = p.forecastX,
+            forecastY = p.forecastY,
+        )
     }
 }
 
 /**
- * Current weather ("⛅ 18°") and an optional strip with the next 4 hours:
+ * Draws the two weather parts, each of which can be horizontal or vertical:
  *
- *     16:00  17:00  18:00  19:00
- *      ⛅     ☁️     🌧️     🌧️
- *      18°    17°    16°    15°
- *                    60%    80%     <- chance of rain, only shown when it's 20% or more
+ *   current, horizontal:  ⛅ 18°        current, vertical:   ⛅
+ *                                                            18°
+ *   forecast, horizontal:  16:00  17:00  18:00  19:00
+ *                           ⛅     ☁️     🌧️     🌧️          forecast, vertical:  16:00
+ *                           18°    17°    16°    15°                              ⛅ 18°
+ *                                         60%    80%                              17:00 ...
+ *
+ * Chance of rain is only shown when it's 20% or more.
  */
 class WeatherPainter(private val context: Context) {
 
-    class Layout(
+    /** A measured part; [rect] says where it is. Move it with [at]. */
+    class Part(
         val rect: RectF,
-        val centerX: Float,
-        val currentLine: Float,
-        val currentSize: Float,
-        val stripTop: Float,
-        val colW: Float,
-        val smallSize: Float,
-        val iconSize: Float,
-        val tempSize: Float,
+        val vertical: Boolean,
+        val unit: Float,
+        val hours: List<WeatherHour>,
         val showRain: Boolean,
-        val hours: Int,
-    )
+    ) {
+        /** The same part with its center at (cx, cy). */
+        fun at(cx: Float, cy: Float) = Part(
+            RectF(cx - rect.width() / 2, cy - rect.height() / 2, cx + rect.width() / 2, cy + rect.height() / 2),
+            vertical, unit, hours, showRain,
+        )
 
-    private val text = Paint(Paint.ANTI_ALIAS_FLAG).apply { textAlign = Paint.Align.CENTER }
+        /** The same part with its top edge centered at (cx, top). */
+        fun below(cx: Float, top: Float) = at(cx, top + rect.height() / 2)
+
+        /** Shifted so it stays on screen. */
+        fun keptInside(w: Int, h: Int): Part {
+            val dx = when {
+                rect.left < 0 -> -rect.left
+                rect.right > w -> w - rect.right
+                else -> 0f
+            }
+            val dy = when {
+                rect.top < 0 -> -rect.top
+                rect.bottom > h -> h - rect.bottom
+                else -> 0f
+            }
+            return at(rect.centerX() + dx, rect.centerY() + dy)
+        }
+    }
+
+    private val text = Paint(Paint.ANTI_ALIAS_FLAG)
     private val small = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        textAlign = Paint.Align.CENTER
         typeface = Typeface.create(Typeface.create("sans-serif", Typeface.NORMAL), 600, false)
     }
 
-    fun layout(w: Int, top: Float, style: WeatherStyle, data: WeatherData): Layout {
-        val currentSize = w * 0.075f
-        val currentLine = top + currentSize
-        var bottom = currentLine + currentSize * 0.3f
-
-        val hours = if (style.forecast) data.nextHours(4) else emptyList()
-        val smallSize = w * 0.034f
-        val iconSize = w * 0.055f
-        val tempSize = w * 0.042f
-        val showRain = hours.any { it.rain >= 20 }
-        val stripTop = bottom + currentSize * 0.4f
-        if (hours.isNotEmpty()) {
-            bottom = stripTop + smallSize + iconSize * 1.35f + tempSize * 1.4f + (if (showRain) smallSize * 1.5f else 0f) + smallSize * 0.3f
-        }
-        val colW = w * 0.19f
-        val halfW = maxOf(w * 0.18f, colW * hours.size / 2f)
-        val cx = w / 2f
-        return Layout(
-            RectF(cx - halfW, top, cx + halfW, bottom), cx, currentLine, currentSize,
-            stripTop, colW, smallSize, iconSize, tempSize, showRain, hours.size,
-        )
+    private fun currentText(data: WeatherData): Pair<String, String> {
+        val now = data.now()
+        return WeatherCodes.emoji(now.code, now.isDay) to "${now.temp.roundToInt()}°"
     }
 
-    fun draw(canvas: Canvas, layout: Layout, data: WeatherData, clock: ClockStyle, colors: PhotoColors) {
-        val color = ClockPainter.textColor(clock, colors)
-        val shadow = ClockPainter.shadowColor(clock, colors)
-        val alpha = (clock.opacity * 255).roundToInt().coerceIn(0, 255)
+    private fun timeLabel(t: Long): String =
+        DateFormat.format(if (DateFormat.is24HourFormat(context)) "HH:mm" else "h a", Date(t)).toString()
 
-        // Current: icon + temperature, centered together.
-        val now = data.now()
-        val icon = WeatherCodes.emoji(now.code, now.isDay)
-        val temp = "${now.temp.roundToInt()}°"
+    // ------------------------------------------------------------ current weather
+
+    fun measureCurrent(w: Int, style: WeatherStyle, clock: ClockStyle, data: WeatherData, vertical: Boolean): Part {
+        val unit = w * 0.075f * style.size
+        val (icon, temp) = currentText(data)
         text.typeface = ClockFonts.typeface(context, clock.font)
-        text.textSize = layout.currentSize
-        text.setShadowLayer(layout.currentSize * 0.08f, 0f, layout.currentSize * 0.02f, shadow)
+        text.textSize = unit
         val iconW = text.measureText(icon)
         val tempW = text.measureText(temp)
-        val gap = layout.currentSize * 0.3f
-        val start = layout.centerX - (iconW + gap + tempW) / 2f
-        text.color = color
-        text.alpha = alpha
-        text.textAlign = Paint.Align.LEFT
-        canvas.drawText(icon, start, layout.currentLine, text)
-        text.color = color
-        canvas.drawText(temp, start + iconW + gap, layout.currentLine, text)
-        text.textAlign = Paint.Align.CENTER
+        val (pw, ph) = if (vertical) max(iconW, tempW) to unit * 2.5f else (iconW + unit * 0.3f + tempW) to unit * 1.3f
+        return Part(RectF(0f, 0f, pw, ph), vertical, unit, emptyList(), false)
+    }
 
-        if (layout.hours == 0) return
-        val hours = data.nextHours(layout.hours)
-        val is24 = DateFormat.is24HourFormat(context)
-        val left = layout.centerX - layout.colW * hours.size / 2f
+    fun drawCurrent(canvas: Canvas, part: Part, data: WeatherData, clock: ClockStyle, colors: PhotoColors) {
+        val (icon, temp) = currentText(data)
+        val u = part.unit
+        text.typeface = ClockFonts.typeface(context, clock.font)
+        text.textSize = u
+        text.color = ClockPainter.textColor(clock, colors)
+        text.setShadowLayer(u * 0.08f, 0f, u * 0.02f, ClockPainter.shadowColor(clock, colors))
+        val r = part.rect
+        if (part.vertical) {
+            text.textAlign = Paint.Align.CENTER
+            canvas.drawText(icon, r.centerX(), r.top + u, text)
+            canvas.drawText(temp, r.centerX(), r.top + u * 2.2f, text)
+        } else {
+            text.textAlign = Paint.Align.LEFT
+            canvas.drawText(icon, r.left, r.top + u, text)
+            canvas.drawText(temp, r.left + text.measureText(icon) + u * 0.3f, r.top + u, text)
+        }
+    }
+
+    // ------------------------------------------------------------ forecast
+
+    /** Null when there's nothing to show (forecast off, or no hours available). */
+    fun measureForecast(w: Int, style: WeatherStyle, data: WeatherData, vertical: Boolean): Part? {
+        if (!style.forecast) return null
+        val hours = data.nextHours(4)
+        if (hours.isEmpty()) return null
+        val u = w * 0.04f * style.forecastSize // base text size
+        val showRain = hours.any { it.rain >= 20 }
+        val (pw, ph) = if (vertical) {
+            val unitH = u * 0.85f * 1.2f + u * 1.35f * 1.25f + (if (showRain) u * 0.85f * 1.2f else 0f) + u * 0.6f
+            (u * 4.6f) to (unitH * hours.size)
+        } else {
+            (u * 4.6f * hours.size) to (u * 0.85f + u * 1.35f * 1.35f + u * 1.4f + (if (showRain) u * 0.85f * 1.5f else 0f) + u * 0.3f)
+        }
+        return Part(RectF(0f, 0f, pw, ph), vertical, u, hours, showRain)
+    }
+
+    fun drawForecast(canvas: Canvas, part: Part, clock: ClockStyle, colors: PhotoColors) {
+        val u = part.unit
+        val color = ClockPainter.textColor(clock, colors)
+        val shadow = ClockPainter.shadowColor(clock, colors)
+        val timeSize = u * 0.85f
+        val iconSize = u * 1.35f
         small.color = color
-        small.setShadowLayer(layout.smallSize * 0.25f, 0f, layout.smallSize * 0.05f, shadow)
-        hours.forEachIndexed { i, h ->
-            val x = left + layout.colW * (i + 0.5f)
-            var y = layout.stripTop + layout.smallSize
+        small.setShadowLayer(u * 0.2f, 0f, u * 0.04f, shadow)
+        small.textAlign = Paint.Align.CENTER
+        text.typeface = small.typeface
+        text.color = color
+        text.setShadowLayer(u * 0.2f, 0f, u * 0.04f, shadow)
+        text.textAlign = Paint.Align.CENTER
+        val r = part.rect
 
-            small.textSize = layout.smallSize
-            canvas.drawText(DateFormat.format(if (is24) "HH:mm" else "h a", Date(h.time)).toString(), x, y, small)
-
-            y += layout.iconSize * 1.35f
-            text.textSize = layout.iconSize
-            text.color = color
-            text.alpha = alpha
-            canvas.drawText(WeatherCodes.emoji(h.code, h.isDay), x, y, text)
-
-            y += layout.tempSize * 1.4f
-            small.textSize = layout.tempSize
-            canvas.drawText("${h.temp.roundToInt()}°", x, y, small)
-
-            if (layout.showRain && h.rain >= 20) {
-                small.textSize = layout.smallSize
-                canvas.drawText("${h.rain}%", x, y + layout.smallSize * 1.5f, small)
+        if (part.vertical) {
+            val unitH = r.height() / part.hours.size
+            part.hours.forEachIndexed { i, h ->
+                var y = r.top + unitH * i + timeSize
+                small.textSize = timeSize
+                canvas.drawText(timeLabel(h.time), r.centerX(), y, small)
+                y += iconSize * 1.25f
+                // icon and temperature side by side
+                text.textSize = iconSize
+                val icon = WeatherCodes.emoji(h.code, h.isDay)
+                val iconW = text.measureText(icon)
+                small.textSize = u * 1.1f
+                val temp = "${h.temp.roundToInt()}°"
+                val tempW = small.measureText(temp)
+                val gap = u * 0.25f
+                val start = r.centerX() - (iconW + gap + tempW) / 2
+                text.textAlign = Paint.Align.LEFT
+                small.textAlign = Paint.Align.LEFT
+                canvas.drawText(icon, start, y, text)
+                canvas.drawText(temp, start + iconW + gap, y, small)
+                text.textAlign = Paint.Align.CENTER
+                small.textAlign = Paint.Align.CENTER
+                if (part.showRain && h.rain >= 20) {
+                    small.textSize = timeSize
+                    canvas.drawText("${h.rain}%", r.centerX(), y + timeSize * 1.2f, small)
+                }
+            }
+        } else {
+            val colW = r.width() / part.hours.size
+            part.hours.forEachIndexed { i, h ->
+                val x = r.left + colW * (i + 0.5f)
+                var y = r.top + timeSize
+                small.textSize = timeSize
+                canvas.drawText(timeLabel(h.time), x, y, small)
+                y += iconSize * 1.35f
+                text.textSize = iconSize
+                canvas.drawText(WeatherCodes.emoji(h.code, h.isDay), x, y, text)
+                y += u * 1.4f
+                small.textSize = u * 1.05f
+                canvas.drawText("${h.temp.roundToInt()}°", x, y, small)
+                if (part.showRain && h.rain >= 20) {
+                    small.textSize = timeSize
+                    canvas.drawText("${h.rain}%", x, y + timeSize * 1.5f, small)
+                }
             }
         }
     }

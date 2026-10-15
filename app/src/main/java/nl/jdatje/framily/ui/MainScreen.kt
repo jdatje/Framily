@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -42,6 +43,8 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -71,6 +74,26 @@ import nl.jdatje.framily.wallpaper.ClockStyle
 import kotlin.math.roundToInt
 import androidx.compose.ui.text.font.Typeface as ComposeTypeface
 
+/** True while a look-setting slider is held; shows the floating preview. */
+private val LocalPreviewing = compositionLocalOf { mutableStateOf(false) }
+
+/** A slider that applies its value while you drag, and shows the floating preview meanwhile. */
+@Composable
+private fun LiveSlider(value: Float, range: ClosedFloatingPointRange<Float>, onLive: (Float) -> Unit) {
+    val previewing = LocalPreviewing.current
+    var v by remember(value) { mutableFloatStateOf(value) }
+    Slider(
+        value = v,
+        onValueChange = {
+            v = it
+            previewing.value = true
+            onLive(it)
+        },
+        onValueChangeFinished = { previewing.value = false },
+        valueRange = range,
+    )
+}
+
 private val intervals = listOf(
     30 to "30 min", 60 to "1 h", 120 to "2 h", 180 to "3 h", 360 to "6 h", 720 to "12 h", 1440 to "1 day"
 )
@@ -96,11 +119,15 @@ fun MainScreen(
     onSetWallpaper: () -> Unit,
     onRequestLocation: () -> Unit,
     onOpenFamily: () -> Unit,
+    onArrange: () -> Unit,
 ) {
     val s by vm.state.collectAsStateWithLifecycle()
     var selected by remember { mutableStateOf<PoolBuilder.Entry?>(null) }
     var confirmRescan by remember { mutableStateOf(false) }
 
+    val previewing = remember { mutableStateOf(false) }
+    CompositionLocalProvider(LocalPreviewing provides previewing) {
+    Box(Modifier.fillMaxSize()) {
     Scaffold { inner ->
         LazyColumn(
             modifier = Modifier
@@ -128,7 +155,7 @@ fun MainScreen(
             item { FamilyCard(s, onOpenFamily) }
             item { RotationCard(s, vm) }
             item { ScanCard(s, vm) }
-            item { ClockCard(s, vm) }
+            item { ClockCard(s, vm, onArrange) }
             item { WeatherCard(s, vm, onRequestLocation) }
             item { FoldersCard(s, vm) }
 
@@ -157,6 +184,29 @@ fun MainScreen(
 
             item { MaintenanceCard(s, vm) { confirmRescan = true } }
         }
+    }
+
+    // Floating preview while a slider is held, so you see the result without scrolling up.
+    val preview = s.preview
+    if (previewing.value && preview != null) {
+        Surface(
+            shape = RoundedCornerShape(14.dp),
+            shadowElevation = 8.dp,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .statusBarsPadding()
+                .padding(12.dp),
+        ) {
+            Image(
+                bitmap = preview,
+                contentDescription = "Preview",
+                modifier = Modifier
+                    .width(150.dp)
+                    .aspectRatio(preview.width.toFloat() / preview.height),
+            )
+        }
+    }
+    }
     }
 
     selected?.let { entry ->
@@ -401,7 +451,7 @@ private fun ScanCard(s: UiState, vm: MainViewModel) {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun ClockCard(s: UiState, vm: MainViewModel) {
+private fun ClockCard(s: UiState, vm: MainViewModel, onArrange: () -> Unit) {
     val c: ClockStyle = s.clock ?: return
     val context = LocalContext.current
     SectionCard("Clock") {
@@ -414,8 +464,12 @@ private fun ClockCard(s: UiState, vm: MainViewModel) {
                         .width(170.dp)
                         .aspectRatio(preview.width.toFloat() / preview.height)
                         .clip(RoundedCornerShape(16.dp))
-                        .border(BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), RoundedCornerShape(16.dp)),
+                        .border(BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), RoundedCornerShape(16.dp))
+                        .clickable(onClick = onArrange),
                 )
+            }
+            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                FilledTonalButton(onClick = onArrange) { Text("Arrange on screen") }
             }
         }
         SwitchRow("Show clock", null, c.enabled) { vm.setClock(it) }
@@ -446,20 +500,30 @@ private fun ClockCard(s: UiState, vm: MainViewModel) {
             }
         }
 
-        var size by remember(c.size) { mutableFloatStateOf(c.size) }
         Label("Size")
-        Slider(value = size, onValueChange = { size = it }, onValueChangeFinished = { vm.setClockSize(size) }, valueRange = 0.5f..1.4f)
+        LiveSlider(c.size, 0.5f..1.4f) { vm.setClockSize(it) }
 
-        var opacity by remember(c.opacity) { mutableFloatStateOf(c.opacity) }
-        Label("Opacity: ${(opacity * 100).roundToInt()}%")
-        Slider(value = opacity, onValueChange = { opacity = it }, onValueChangeFinished = { vm.setClockOpacity(opacity) }, valueRange = 0.3f..1f)
+        Label("Opacity: ${(c.opacity * 100).roundToInt()}%")
+        LiveSlider(c.opacity, 0.3f..1f) { vm.setClockOpacity(it) }
 
-        var pos by remember(c.position) { mutableFloatStateOf(c.position) }
-        Label("Height on screen")
-        Slider(value = pos, onValueChange = { pos = it }, onValueChangeFinished = { vm.setClockPos(pos) }, valueRange = 0.06f..0.6f)
+        Label("Position")
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilterChip(selected = c.auto, onClick = { vm.setClockAuto(true) }, label = { Text("Behind heads (auto)") })
+            FilterChip(selected = !c.auto, onClick = { vm.setClockAuto(false) }, label = { Text("Fixed height") })
+        }
+        if (c.auto) {
+            Text(
+                "Placed just behind the main person's head, like on an iPhone. Needs the depth effect; " +
+                    "without a clear person it uses the fixed height.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        } else {
+            LiveSlider(c.position, 0.04f..0.8f) { vm.setClockPos(it) }
+        }
 
         SwitchRow("Show date", null, c.showDate) { vm.setClockDate(it) }
-        SwitchRow("Depth effect", "People stand in front of the clock", c.depth) { vm.setDepth(it) }
+        SwitchRow("Depth effect", "People stand in front of the clock and weather", c.depth) { vm.setDepth(it) }
     }
 }
 
@@ -522,12 +586,31 @@ private fun WeatherCard(s: UiState, vm: MainViewModel, onRequestLocation: () -> 
 
         Label("Position")
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            FilterChip(selected = w.placement == "clock", onClick = { vm.setWeatherPlacement("clock") }, label = { Text("Under the clock") })
-            FilterChip(selected = w.placement != "clock", onClick = { vm.setWeatherPlacement("separate") }, label = { Text("Own position") })
+            FilterChip(selected = w.placement == "sides", onClick = { vm.setWeatherPlacement("sides") }, label = { Text("Beside the clock") })
+            FilterChip(selected = w.placement == "under", onClick = { vm.setWeatherPlacement("under") }, label = { Text("Under the clock") })
+            FilterChip(selected = w.placement == "custom", onClick = { vm.setWeatherPlacement("custom") }, label = { Text("My own spot") })
         }
-        if (w.placement != "clock") {
-            var pos by remember(w.position) { mutableFloatStateOf(w.position) }
-            Slider(value = pos, onValueChange = { pos = it }, onValueChangeFinished = { vm.setWeatherPosition(pos) }, valueRange = 0.1f..0.85f)
+        Text(
+            when (w.placement) {
+                "sides" -> "Current weather left of the clock, the next hours on the right."
+                "under" -> "Right below the clock."
+                else -> "Drag them anywhere with \"Arrange on screen\" in the Clock section."
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        if (w.placement == "custom" && w.forecast) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(selected = !w.forecastVertical, onClick = { vm.setForecastVertical(false) }, label = { Text("Hours side by side") })
+                FilterChip(selected = w.forecastVertical, onClick = { vm.setForecastVertical(true) }, label = { Text("Hours below each other") })
+            }
+        }
+
+        Label("Current weather size")
+        LiveSlider(w.size, 0.5f..1.6f) { vm.setWeatherSize(it) }
+        if (w.forecast) {
+            Label("Forecast size")
+            LiveSlider(w.forecastSize, 0.5f..1.4f) { vm.setForecastSize(it) }
         }
     }
 }

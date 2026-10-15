@@ -43,12 +43,17 @@ class MainActivity : ComponentActivity() {
                     }
                     return@FramilyTheme
                 }
+                if (screen == "arrange") {
+                    ArrangeScreen(vm) { screen = "main" }
+                    return@FramilyTheme
+                }
                 MainScreen(
                     vm = vm,
                     onRequestPermissions = { launcher.launch(Permissions.requestList) },
                     onOpenAppSettings = { openAppSettings() },
                     onSetWallpaper = { openWallpaperPicker() },
                     onRequestLocation = { locationLauncher.launch(Manifest.permission.ACCESS_COARSE_LOCATION) },
+                    onArrange = { screen = "arrange" },
                     onOpenFamily = {
                         familyVm.reload()
                         screen = "family"

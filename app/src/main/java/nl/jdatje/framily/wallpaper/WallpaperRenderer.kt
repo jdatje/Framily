@@ -6,6 +6,7 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Rect
+import android.graphics.RectF
 import android.util.Log
 import nl.jdatje.framily.data.PhotoDb
 import nl.jdatje.framily.util.ImageUtils
@@ -62,33 +63,78 @@ object WallpaperRenderer {
         val weatherPainter: WeatherPainter,
     )
 
-    fun draw(canvas: Canvas, frame: Frame?, w: Int, h: Int, o: Overlay) {
+    /** Where each element ended up (screen pixels); used by the Arrange screen. */
+    class Placed(val clock: RectF?, val current: RectF?, val forecast: RectF?)
+
+    fun draw(canvas: Canvas, frame: Frame?, w: Int, h: Int, o: Overlay): Placed {
         val full = Rect(0, 0, w, h)
         val bg = frame?.bg
         val style = if (bg == null) o.clockStyle.copy(color = "white") else o.clockStyle
         val colors = frame?.clockColors ?: PhotoColors.DEFAULT
         if (bg == null) canvas.drawColor(0xFF1B1B1F.toInt()) else canvas.drawBitmap(bg, null, full, bitmapPaint)
 
-        val clockLayout = if (style.enabled) o.clock.layout(w, h, style) else null
-        val weatherData = o.weather?.takeIf { o.weatherStyle.enabled }
-        val weatherLayout = weatherData?.let {
-            val top = if (o.weatherStyle.placement == "clock" && clockLayout != null) {
-                clockLayout.rect.bottom + w * 0.05f
+        val fg = frame?.fg?.takeIf { style.depth }
+
+        // Clock: at its set height, or automatically just behind the main person's head.
+        val clockLayout = if (style.enabled) {
+            val measured = o.clock.layout(w, h, style, 0f)
+            val headTop = if (style.auto) fg?.personTop() else null
+            val top = if (headTop != null) {
+                // The head covers roughly the lower third of the clock, like on iPhones.
+                (headTop * h - measured.rect.height() * 0.7f).coerceIn(h * 0.05f, h * 0.55f)
             } else {
-                h * o.weatherStyle.position
+                h * style.position
             }
-            o.weatherPainter.layout(w, top, o.weatherStyle, it)
+            o.clock.layout(w, h, style, top)
+        } else null
+
+        // Weather: under the clock, beside it, or wherever it was dragged.
+        val ws = o.weatherStyle
+        val data = o.weather?.takeIf { ws.enabled }
+        var current: WeatherPainter.Part? = null
+        var forecast: WeatherPainter.Part? = null
+        if (data != null) {
+            val p = o.weatherPainter
+            val clockRect = clockLayout?.rect
+            val placement = if (clockRect == null && ws.placement != "custom") "custom" else ws.placement
+            when (placement) {
+                "under" -> {
+                    val r = clockRect!!
+                    current = p.measureCurrent(w, ws, style, data, vertical = false).below(r.centerX(), r.bottom + w * 0.04f)
+                    forecast = p.measureForecast(w, ws, data, vertical = false)?.below(r.centerX(), current.rect.bottom + w * 0.02f)
+                }
+                "sides" -> {
+                    val r = clockRect!!
+                    current = p.measureCurrent(w, ws, style, data, vertical = true).at(r.left / 2f, r.centerY())
+                    forecast = p.measureForecast(w, ws, data, vertical = true)?.at((r.right + w) / 2f, r.centerY())
+                }
+                else -> {
+                    current = p.measureCurrent(w, ws, style, data, vertical = false).at(ws.x * w, ws.y * h)
+                    forecast = p.measureForecast(w, ws, data, ws.forecastVertical)?.at(ws.forecastX * w, ws.forecastY * h)
+                }
+            }
+            current = current.keptInside(w, h)
+            forecast = forecast?.keptInside(w, h)
         }
 
-        // People go in front of the clock and weather, unless they'd hide too much of them.
-        val fg = frame?.fg?.takeIf { style.depth }
-        val clockBehind = clockLayout != null && fg != null && fg.coverage(clockLayout.rect, w, h) < 0.45f
-        val weatherBehind = weatherLayout != null && fg != null && fg.coverage(weatherLayout.rect, w, h) < 0.25f
+        // People go in front of each element, unless they'd hide too much of it.
+        fun behind(r: RectF?, limit: Float) = r != null && fg != null && fg.coverage(r, w, h) < limit
+        val clockBehind = behind(clockLayout?.rect, 0.45f)
+        val currentBehind = behind(current?.rect, 0.25f)
+        val forecastBehind = behind(forecast?.rect, 0.25f)
 
-        if (clockLayout != null && clockBehind) o.clock.draw(canvas, clockLayout, style, colors)
-        if (weatherLayout != null && weatherBehind) o.weatherPainter.draw(canvas, weatherLayout, weatherData, style, colors)
-        if (fg != null && (clockBehind || weatherBehind)) canvas.drawBitmap(fg.bitmap, null, full, bitmapPaint)
-        if (clockLayout != null && !clockBehind) o.clock.draw(canvas, clockLayout, style, colors)
-        if (weatherLayout != null && !weatherBehind) o.weatherPainter.draw(canvas, weatherLayout, weatherData, style, colors)
+        fun drawClock() = clockLayout?.let { o.clock.draw(canvas, it, style, colors) }
+        fun drawCurrent() = current?.let { o.weatherPainter.drawCurrent(canvas, it, data!!, style, colors) }
+        fun drawForecast() = forecast?.let { o.weatherPainter.drawForecast(canvas, it, style, colors) }
+
+        if (clockBehind) drawClock()
+        if (currentBehind) drawCurrent()
+        if (forecastBehind) drawForecast()
+        if (fg != null && (clockBehind || currentBehind || forecastBehind)) canvas.drawBitmap(fg.bitmap, null, full, bitmapPaint)
+        if (!clockBehind) drawClock()
+        if (!currentBehind) drawCurrent()
+        if (!forecastBehind) drawForecast()
+
+        return Placed(clockLayout?.rect, current?.rect, forecast?.rect)
     }
 }

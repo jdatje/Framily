@@ -30,6 +30,10 @@ data class ClockStyle(
     val showDate: Boolean,
     val position: Float,
     val depth: Boolean,
+    /** Horizontal center, fraction of the screen width. */
+    val x: Float = 0.5f,
+    /** Place automatically behind the main person's head (when there is one). */
+    val auto: Boolean = false,
 ) {
     val stacked: Boolean get() = layout != "line"
 
@@ -44,6 +48,8 @@ data class ClockStyle(
             showDate = p.clockDate,
             position = p.clockPosition,
             depth = p.depthEnabled,
+            x = p.clockX,
+            auto = p.clockAuto,
         )
     }
 }
@@ -124,7 +130,8 @@ class ClockPainter(private val context: Context) {
     }
     private val bounds = Rect()
 
-    fun layout(w: Int, h: Int, style: ClockStyle): Layout {
+    /** Layout with the clock's top at [top] (pixels); by default the "Height on screen" setting. */
+    fun layout(w: Int, h: Int, style: ClockStyle, top: Float = h * style.position): Layout {
         paint.typeface = ClockFonts.typeface(context, style.font)
         val size = w * (if (style.stacked) 0.40f else 0.24f) * style.size
         paint.textSize = size
@@ -132,7 +139,6 @@ class ClockPainter(private val context: Context) {
         val digitH = bounds.height().toFloat()
         val textW = paint.measureText(if (style.stacked) "00" else "00:00")
 
-        val top = h * style.position
         val line1 = top + digitH
         val line2 = if (style.stacked) line1 + digitH * 1.15f else line1
         val dateSize = w * 0.05f * max(0.8f, style.size)
@@ -141,7 +147,7 @@ class ClockPainter(private val context: Context) {
         datePaint.textSize = dateSize
         val dateW = if (style.showDate) datePaint.measureText(dateText()) else 0f
         val halfW = max(textW, dateW) / 2f
-        val cx = w / 2f
+        val cx = (w * style.x).coerceIn(halfW, w - halfW)
         return Layout(RectF(cx - halfW, top, cx + halfW, bottom), cx, line1, line2, dateLine, size, dateSize)
     }
 

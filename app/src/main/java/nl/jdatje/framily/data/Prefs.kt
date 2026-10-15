@@ -93,14 +93,55 @@ class Prefs private constructor(context: Context) {
         get() = sp.getBoolean(WEATHER_FORECAST, true)
         set(v) = sp.edit { putBoolean(WEATHER_FORECAST, v) }
 
-    /** "clock" (right under the clock) or "separate" (own height on screen). */
+    /**
+     * "under" (below the clock), "sides" (current weather left of the clock, forecast right of it)
+     * or "custom" (wherever you dragged them).
+     */
     var weatherPlacement: String
-        get() = sp.getString(WEATHER_PLACEMENT, "clock") ?: "clock"
+        get() = when (val v = sp.getString(WEATHER_PLACEMENT, "sides")) {
+            "clock" -> "under"      // name used by version 0.4
+            "separate" -> "custom"  // name used by version 0.4
+            null -> "sides"
+            else -> v
+        }
         set(v) = sp.edit { putString(WEATHER_PLACEMENT, v) }
 
-    var weatherPosition: Float
-        get() = sp.getFloat(WEATHER_POS, 0.72f)
-        set(v) = sp.edit { putFloat(WEATHER_POS, v) }
+    var weatherSize: Float
+        get() = sp.getFloat(WEATHER_SIZE, 1f)
+        set(v) = sp.edit { putFloat(WEATHER_SIZE, v) }
+
+    var forecastSize: Float
+        get() = sp.getFloat(FORECAST_SIZE, 0.8f)
+        set(v) = sp.edit { putFloat(FORECAST_SIZE, v) }
+
+    /** Forecast hours below each other instead of side by side (for "custom"). */
+    var forecastVertical: Boolean
+        get() = sp.getBoolean(FORECAST_VERTICAL, false)
+        set(v) = sp.edit { putBoolean(FORECAST_VERTICAL, v) }
+
+    /** Custom positions: centers as fractions of the screen. */
+    var weatherX: Float
+        get() = sp.getFloat(WEATHER_X, 0.5f)
+        set(v) = sp.edit { putFloat(WEATHER_X, v) }
+    var weatherY: Float
+        get() = sp.getFloat(WEATHER_Y, 0.62f)
+        set(v) = sp.edit { putFloat(WEATHER_Y, v) }
+    var forecastX: Float
+        get() = sp.getFloat(FORECAST_X, 0.5f)
+        set(v) = sp.edit { putFloat(FORECAST_X, v) }
+    var forecastY: Float
+        get() = sp.getFloat(FORECAST_Y, 0.72f)
+        set(v) = sp.edit { putFloat(FORECAST_Y, v) }
+
+    /** Horizontal center of the clock, as a fraction of the screen width. */
+    var clockX: Float
+        get() = sp.getFloat(CLOCK_X, 0.5f)
+        set(v) = sp.edit { putFloat(CLOCK_X, v) }
+
+    /** Place the clock automatically, just behind the main person's head. */
+    var clockAuto: Boolean
+        get() = sp.getBoolean(CLOCK_AUTO, true)
+        set(v) = sp.edit { putBoolean(CLOCK_AUTO, v) }
 
     /** "location" (phone's approximate location) or "city". */
     var weatherSource: String
@@ -158,6 +199,13 @@ class Prefs private constructor(context: Context) {
         get() = sp.getInt(SCORER, 0)
         set(v) = sp.edit { putInt(SCORER, v) }
 
+    /** The key of every setting that changes. */
+    fun keyChanges(): Flow<String?> = callbackFlow {
+        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key -> trySend(key) }
+        sp.registerOnSharedPreferenceChangeListener(listener)
+        awaitClose { sp.unregisterOnSharedPreferenceChangeListener(listener) }
+    }
+
     /** Emits once right away and again whenever any setting changes. */
     fun changes(): Flow<Unit> = callbackFlow {
         val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ -> trySend(Unit) }
@@ -187,7 +235,15 @@ class Prefs private constructor(context: Context) {
         const val WEATHER = "weather_enabled"
         const val WEATHER_FORECAST = "weather_forecast"
         const val WEATHER_PLACEMENT = "weather_placement"
-        const val WEATHER_POS = "weather_position"
+        const val WEATHER_SIZE = "weather_size"
+        const val FORECAST_SIZE = "forecast_size"
+        const val FORECAST_VERTICAL = "forecast_vertical"
+        const val WEATHER_X = "weather_x"
+        const val WEATHER_Y = "weather_y"
+        const val FORECAST_X = "forecast_x"
+        const val FORECAST_Y = "forecast_y"
+        const val CLOCK_X = "clock_x"
+        const val CLOCK_AUTO = "clock_auto"
         const val WEATHER_SOURCE = "weather_source"
         const val WEATHER_LAT = "weather_lat"
         const val WEATHER_LON = "weather_lon"
@@ -198,7 +254,9 @@ class Prefs private constructor(context: Context) {
         val CLOCK_KEYS = setOf(
             "clock_enabled", "clock_position", CLOCK_FONT, CLOCK_LAYOUT,
             CLOCK_SIZE, CLOCK_COLOR, CLOCK_OPACITY, CLOCK_DATE,
-            WEATHER, WEATHER_FORECAST, WEATHER_PLACEMENT, WEATHER_POS, WEATHER_DATA,
+            WEATHER, WEATHER_FORECAST, WEATHER_PLACEMENT, WEATHER_DATA,
+            WEATHER_SIZE, FORECAST_SIZE, FORECAST_VERTICAL, WEATHER_X, WEATHER_Y, FORECAST_X, FORECAST_Y,
+            CLOCK_X, CLOCK_AUTO,
         )
         const val DEPTH = "depth_enabled"
         const val LOCK = "lock_screen"

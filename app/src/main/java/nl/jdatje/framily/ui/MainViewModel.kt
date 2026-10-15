@@ -13,7 +13,9 @@ import androidx.work.WorkManager
 import androidx.work.WorkQuery
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.debounce
@@ -80,6 +82,8 @@ data class UiState(
     val doubleTap: Boolean = true,
     val clock: ClockStyle? = null,
     val preview: ImageBitmap? = null,
+    /** Where clock and weather are on the preview (preview pixels), for dragging them. */
+    val placed: WallpaperRenderer.Placed? = null,
     val weather: WeatherStyle? = null,
     val weatherSource: String = "location",
     val weatherPlace: String? = null,
@@ -113,10 +117,24 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private var previewFrameDepth = false
     private var segmenter: DepthSegmenter? = null
 
+    /** Look-only settings (clock, weather layout) just redraw the preview; others reload everything. */
+    private val dataTrigger = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    private val previewTrigger = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+
     init {
         viewModelScope.launch {
-            prefs.changes().debounce(150).collect { refreshData() }
+            prefs.keyChanges().collect { key ->
+                if (key in Prefs.CLOCK_KEYS || key == Prefs.DEPTH) previewTrigger.tryEmit(Unit) else dataTrigger.tryEmit(Unit)
+            }
         }
+        viewModelScope.launch { dataTrigger.debounce(150).collect { refreshData() } }
+        viewModelScope.launch(Dispatchers.IO) {
+            previewTrigger.conflate().collect {
+                _state.update { it.copy(clock = ClockStyle.from(prefs), weather = WeatherStyle.from(prefs)) }
+                refreshPreview()
+            }
+        }
+        refreshData()
         viewModelScope.launch {
             WorkManager.getInstance(app)
                 .getWorkInfosFlow(WorkQuery.fromUniqueWorkNames(Scheduler.SCAN_NOW, Scheduler.SCAN_PERIODIC))
@@ -233,8 +251,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val overlay = WallpaperRenderer.Overlay(
             style, clockPainter, WeatherStyle.from(prefs), WeatherRepo.current(ctx), weatherPainter,
         )
-        WallpaperRenderer.draw(Canvas(bmp), previewFrame, previewW, previewH, overlay)
-        _state.update { it.copy(preview = bmp.asImageBitmap()) }
+        val placed = WallpaperRenderer.draw(Canvas(bmp), previewFrame, previewW, previewH, overlay)
+        _state.update { it.copy(preview = bmp.asImageBitmap(), placed = placed) }
     }
 
     fun setInterval(minutes: Int) {
@@ -263,7 +281,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun setClock(on: Boolean) { prefs.clockEnabled = on }
-    fun setClockPos(p: Float) { prefs.clockPosition = p }
+    fun setClockPos(p: Float) { prefs.clockPosition = p; prefs.clockAuto = false }
     fun setDepth(on: Boolean) { prefs.depthEnabled = on }
     fun setClockFont(id: String) { prefs.clockFont = id }
     fun setClockLayout(layout: String) { prefs.clockLayout = layout }
@@ -280,7 +298,76 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setWeatherForecast(on: Boolean) { prefs.weatherForecast = on }
     fun setWeatherPlacement(p: String) { prefs.weatherPlacement = p }
-    fun setWeatherPosition(p: Float) { prefs.weatherPosition = p }
+    fun setWeatherSize(v: Float) { prefs.weatherSize = v }
+    fun setForecastSize(v: Float) { prefs.forecastSize = v }
+    fun setForecastVertical(on: Boolean) { prefs.forecastVertical = on }
+    fun setClockAuto(on: Boolean) { prefs.clockAuto = on }
+
+    // ------------------------------------------------------------ Arrange screen (drag & drop)
+
+    val previewSize: Pair<Int, Int> get() = previewW to previewH
+
+    private var dragStart: Pair<Float, Float>? = null
+
+    /** Which element is under this point of the preview (preview pixels), if any. */
+    fun elementAt(x: Float, y: Float): String? {
+        val p = _state.value.placed ?: return null
+        val pad = previewW * 0.03f
+        fun hit(r: android.graphics.RectF?) = r != null && x in (r.left - pad)..(r.right + pad) && y in (r.top - pad)..(r.bottom + pad)
+        return when {
+            hit(p.current) -> "current"
+            hit(p.forecast) -> "forecast"
+            hit(p.clock) -> "clock"
+            else -> null
+        }
+    }
+
+    fun startDrag(element: String) {
+        val p = _state.value.placed
+        when (element) {
+            "clock" -> {
+                if (prefs.clockAuto) {
+                    // Freeze where auto placed it, then move from there.
+                    p?.clock?.let { prefs.clockPosition = it.top / previewH }
+                    prefs.clockAuto = false
+                }
+                dragStart = prefs.clockX to prefs.clockPosition
+            }
+            else -> {
+                if (prefs.weatherPlacement != "custom") {
+                    // Start from where the weather is now.
+                    p?.current?.let { prefs.weatherX = it.centerX() / previewW; prefs.weatherY = it.centerY() / previewH }
+                    p?.forecast?.let { prefs.forecastX = it.centerX() / previewW; prefs.forecastY = it.centerY() / previewH }
+                    prefs.forecastVertical = prefs.weatherPlacement == "sides"
+                    prefs.weatherPlacement = "custom"
+                }
+                dragStart = if (element == "current") prefs.weatherX to prefs.weatherY else prefs.forecastX to prefs.forecastY
+            }
+        }
+    }
+
+    /** [dx]/[dy]: total movement since the drag started, as fractions of the screen. */
+    fun drag(element: String, dx: Float, dy: Float) {
+        val (sx, sy) = dragStart ?: return
+        // Snap to the middle, so centering is easy.
+        fun snapX(v: Float) = if (kotlin.math.abs(v - 0.5f) < 0.02f) 0.5f else v
+        val x = snapX((sx + dx).coerceIn(0f, 1f))
+        when (element) {
+            "clock" -> { prefs.clockX = x; prefs.clockPosition = (sy + dy).coerceIn(0.02f, 0.85f) }
+            "current" -> { prefs.weatherX = x; prefs.weatherY = (sy + dy).coerceIn(0f, 1f) }
+            "forecast" -> { prefs.forecastX = x; prefs.forecastY = (sy + dy).coerceIn(0f, 1f) }
+        }
+    }
+
+    fun endDrag() { dragStart = null }
+
+    /** Back to the default layout: clock behind heads, weather beside the clock. */
+    fun resetLayout() {
+        prefs.clockX = 0.5f
+        prefs.clockAuto = true
+        prefs.weatherPlacement = "sides"
+        prefs.forecastVertical = false
+    }
 
     fun setWeatherSource(source: String) {
         prefs.weatherSource = source
