@@ -56,7 +56,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -145,6 +147,7 @@ fun MainScreen(
                 )
             }
 
+            s.crashReport?.let { report -> item { CrashCard(report, vm) } }
             if (!s.hasMedia || !s.hasNotifications) {
                 item { PermissionCard(s, onRequestPermissions, onOpenAppSettings) }
             }
@@ -261,6 +264,35 @@ private fun PermissionCard(s: UiState, onRequest: () -> Unit, onSettings: () -> 
                 if (!s.hasNotifications) Text("• Notifications: for the Skip / Not family buttons.")
                 Button(onClick = onRequest) { Text("Allow") }
                 TextButton(onClick = onSettings) { Text("Already declined? Open app settings") }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CrashCard(report: String, vm: MainViewModel) {
+    val clipboard = LocalClipboardManager.current
+    var copied by remember { mutableStateOf(false) }
+    Card(
+        Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Framily ran into a problem", style = MaterialTheme.typography.titleMedium)
+            Text(
+                report.lineSequence().take(4).joinToString("\n"),
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = 6,
+            )
+            Text(
+                "Copy the details and paste them in the chat, so the cause can be fixed.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = { clipboard.setText(AnnotatedString(report)); copied = true }) {
+                    Text(if (copied) "Copied" else "Copy details")
+                }
+                TextButton(onClick = { vm.clearCrash() }) { Text("Dismiss") }
             }
         }
     }

@@ -23,6 +23,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import nl.jdatje.framily.CrashLog
 import nl.jdatje.framily.Permissions
 import nl.jdatje.framily.Scheduler
 import nl.jdatje.framily.data.Bucket
@@ -92,6 +93,8 @@ data class UiState(
     val cityResults: List<City> = emptyList(),
     val citySearching: Boolean = false,
     val weatherError: String? = null,
+    /** Details of the last crash, shown so they can be copied. */
+    val crashReport: String? = null,
     val familyCount: Int = 0,
     val familyOnly: Boolean = false,
 )
@@ -176,6 +179,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 hasMedia = hasMedia,
                 partialMedia = Permissions.partialMedia(ctx),
                 hasNotifications = Permissions.hasNotifications(ctx),
+                crashReport = CrashLog.read(ctx),
                 wallpaperActive = runCatching {
                     WallpaperManager.getInstance(ctx).wallpaperInfo?.packageName == ctx.packageName
                 }.getOrDefault(false),
@@ -437,6 +441,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         if (!added) set.remove(id)
         prefs.selectedBuckets = set
         if (added) Scheduler.scanNow(ctx)
+    }
+
+    fun clearCrash() {
+        CrashLog.clear(ctx)
+        _state.update { it.copy(crashReport = null) }
     }
 
     fun scanNow() = Scheduler.scanNow(ctx)

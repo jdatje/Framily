@@ -1,12 +1,13 @@
 package nl.jdatje.framily
 
 import android.content.Context
+import android.util.Log
 import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.ExistingWorkPolicy
+import androidx.work.OneTimeWorkRequest
 import androidx.work.OneTimeWorkRequestBuilder
-import androidx.work.OutOfQuotaPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import nl.jdatje.framily.data.Prefs
@@ -43,12 +44,12 @@ object Scheduler {
     }
 
     /**
-     * Start a scan. With "only while charging" on, it waits for a charger (and pauses when unplugged).
-     * [restart] re-applies changed scan settings to a scan that is already waiting or running.
+     * The scan job. With "only while charging" it waits for a charger (and pauses when unplugged).
+     * Not "expedited": Android doesn't allow that together with battery conditions (that combination
+     * crashed versions 0.3–0.6). The scan still runs as a long background job with a notification.
      */
-    fun scanNow(context: Context, restart: Boolean = false) {
-        val onlyCharging = Prefs.get(context).scanOnlyCharging
-        val builder = OneTimeWorkRequestBuilder<ScanWorker>()
+    fun scanRequest(onlyCharging: Boolean): OneTimeWorkRequest =
+        OneTimeWorkRequestBuilder<ScanWorker>()
             .setConstraints(
                 Constraints.Builder()
                     .setRequiresCharging(onlyCharging)
@@ -57,19 +58,30 @@ object Scheduler {
             )
             .setBackoffCriteria(BackoffPolicy.LINEAR, 15, TimeUnit.MINUTES)
             .addTag(SCAN_NOW)
-        // Expedited work can't wait for a charger, so only use it when charging isn't required.
-        if (!onlyCharging) builder.setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
-        WorkManager.getInstance(context).enqueueUniqueWork(
-            SCAN_NOW,
-            if (restart) ExistingWorkPolicy.REPLACE else ExistingWorkPolicy.KEEP,
-            builder.build(),
-        )
+            .build()
+
+    /** Start a scan. [restart] re-applies changed scan settings to a scan that is already waiting or running. */
+    fun scanNow(context: Context, restart: Boolean = false) {
+        try {
+            WorkManager.getInstance(context).enqueueUniqueWork(
+                SCAN_NOW,
+                if (restart) ExistingWorkPolicy.REPLACE else ExistingWorkPolicy.KEEP,
+                scanRequest(Prefs.get(context).scanOnlyCharging),
+            )
+        } catch (e: Exception) {
+            // Never let scheduling take the app down.
+            Log.e("Scheduler", "Could not queue scan", e)
+            CrashLog.record(context, e, fatal = false)
+        }
     }
 
     /** True when a scan is waiting to start or running. */
-    fun scanPending(context: Context): Boolean =
+    fun scanPending(context: Context): Boolean = try {
         WorkManager.getInstance(context).getWorkInfosForUniqueWork(SCAN_NOW).get()
             .any { !it.state.isFinished }
+    } catch (e: Exception) {
+        false
+    }
 
     fun stopScan(context: Context) {
         WorkManager.getInstance(context).cancelUniqueWork(SCAN_NOW)

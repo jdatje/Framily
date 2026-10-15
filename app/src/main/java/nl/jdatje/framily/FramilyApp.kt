@@ -6,6 +6,7 @@ import nl.jdatje.framily.weather.WeatherRepo
 class FramilyApp : Application() {
     override fun onCreate() {
         super.onCreate()
+        CrashLog.install(this)
         Notifications.createChannels(this)
         Scheduler.scheduleRotation(this)
         Scheduler.schedulePeriodicScan(this)
