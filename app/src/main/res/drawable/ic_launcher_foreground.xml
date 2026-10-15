@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A photo frame with two people in it -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#FFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M36,30 H72 A6,6 0 0 1 78,36 V72 A6,6 0 0 1 72,78 H36 A6,6 0 0 1 30,72 V36 A6,6 0 0 1 36,30 Z M36,36 V72 H72 V36 Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M43,50 a6,6 0 1 0 12,0 a6,6 0 1 0 -12,0 Z M39,72 v-4 c0,-6 4,-10 10,-10 c6,0 10,4 10,10 v4 Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M57.5,55 a4.5,4.5 0 1 0 9,0 a4.5,4.5 0 1 0 -9,0 Z M55,72 v-3 c0,-5 3,-8 7,-8 c4,0 7,3 7,8 v3 Z" />
+</vector>
