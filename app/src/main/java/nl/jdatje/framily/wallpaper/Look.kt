@@ -21,6 +21,8 @@ data class LookStyle(
     val bgColor: String,
     val bgClock: Boolean,
     val outline: Boolean,
+    val autoOpacity: Boolean = false,
+    val readability: Float = 0.5f,
     val nightDim: Boolean,
     val nightDimStrength: Float,
     val rainAlert: Boolean,
@@ -36,6 +38,8 @@ data class LookStyle(
             bgColor = p.bgColor,
             bgClock = p.bgClock,
             outline = p.textOutline,
+            autoOpacity = p.autoOpacity,
+            readability = p.readability,
             nightDim = p.nightDim,
             nightDimStrength = p.nightDimStrength,
             rainAlert = p.rainAlert,
@@ -65,6 +69,32 @@ object Ink {
             canvas.drawText(s, x, y, stroke)
         }
         canvas.drawText(s, x, y, paint)
+    }
+
+    /** Average brightness and its spread ("busyness") of the photo inside [r]. */
+    fun stats(photo: Bitmap?, r: RectF, screenW: Int, screenH: Int): Pair<Float, Float> {
+        photo ?: return 0f to 0f
+        val sx = photo.width.toFloat() / screenW
+        val sy = photo.height.toFloat() / screenH
+        val l = (r.left * sx).roundToInt().coerceIn(0, photo.width - 1)
+        val t = (r.top * sy).roundToInt().coerceIn(0, photo.height - 1)
+        val rr = (r.right * sx).roundToInt().coerceIn(l + 1, photo.width)
+        val b = (r.bottom * sy).roundToInt().coerceIn(t + 1, photo.height)
+        val stepX = max(1, (rr - l) / 16)
+        val stepY = max(1, (b - t) / 16)
+        var sum = 0.0
+        var sumSq = 0.0
+        var n = 0
+        for (y in t until b step stepY) for (x in l until rr step stepX) {
+            val v = ColorUtils.calculateLuminance(photo.getPixel(x, y))
+            sum += v
+            sumSq += v * v
+            n++
+        }
+        if (n == 0) return 0f to 0f
+        val mean = sum / n
+        val sd = kotlin.math.sqrt(kotlin.math.max(0.0, sumSq / n - mean * mean))
+        return mean.toFloat() to sd.toFloat()
     }
 
     /** Average brightness (0 dark … 1 light) of the photo inside [r]. */
@@ -114,7 +144,7 @@ object Ink {
             paint.alpha = (min(1f, look.bgOpacity * 1.8f) * 255).roundToInt()
             canvas.drawBitmap(blurred, null, Rect(0, 0, w, h), paint)
             paint.alpha = 255
-            paint.color = ColorUtils.setAlphaComponent(tint, (look.bgOpacity * 0.55f * 255).roundToInt())
+            paint.color = ColorUtils.setAlphaComponent(tint, (look.bgOpacity * 0.8f * 255).roundToInt())
             canvas.drawRect(area, paint)
             canvas.restore()
         } else {

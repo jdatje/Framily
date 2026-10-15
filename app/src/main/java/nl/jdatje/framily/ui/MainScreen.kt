@@ -161,7 +161,8 @@ private fun lookSummary(s: UiState): String {
     val l = s.look ?: return ""
     val bg = when (l.bgStyle) { "pill" -> "Soft background"; "frosted" -> "Frosted background"; else -> "No background" }
     return listOfNotNull(
-        if (l.bgStyle != "none") "$bg ${(l.bgOpacity * 100).roundToInt()}%" else bg,
+        "Auto opacity".takeIf { l.autoOpacity },
+        if (l.bgStyle != "none" && !l.autoOpacity) "$bg ${(l.bgOpacity * 100).roundToInt()}%" else bg,
         "outline".takeIf { l.outline },
         "night dimming".takeIf { l.nightDim },
     ).joinToString(" · ")

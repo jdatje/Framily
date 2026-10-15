@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -135,8 +136,12 @@ fun LazyListScope.clockPage(s: UiState, vm: MainViewModel) {
             if (c.color == "auto") Hint("Light or dark per spot, depending on the photo behind it. Also used for weather and caption.")
             Label("Size")
             LiveSlider(c.size, 0.5f..1.4f) { vm.setClockSize(it) }
-            Label("Opacity: ${(c.opacity * 100).roundToInt()}%")
-            LiveSlider(c.opacity, 0.3f..1f) { vm.setClockOpacity(it) }
+            if (s.look?.autoOpacity == true) {
+                Hint("Opacity: automatic per photo (change it under Readability)")
+            } else {
+                Label("Opacity: ${(c.opacity * 100).roundToInt()}%")
+                LiveSlider(c.opacity, 0.3f..1f) { vm.setClockOpacity(it) }
+            }
             SwitchRow("Show date", null, c.showDate) { vm.setClockDate(it) }
         }
     }
@@ -278,12 +283,32 @@ private fun WeatherAppCard(s: UiState, vm: MainViewModel) {
 fun LazyListScope.lookPage(s: UiState, vm: MainViewModel) {
     val l = s.look ?: return
     item {
+        SectionCard("Opacity") {
+            SwitchRow(
+                "Automatic",
+                "Per photo and per spot: more solid on white or busy areas, see-through where the text is easy to read",
+                l.autoOpacity,
+            ) { vm.setAutoOpacity(it) }
+            if (l.autoOpacity) {
+                Label("Readability")
+                LiveSlider(l.readability, 0f..1f) { vm.setReadability(it) }
+                Row(Modifier.fillMaxWidth()) {
+                    Hint("Subtle")
+                    Spacer(Modifier.weight(1f))
+                    Hint("Very clear")
+                }
+            }
+        }
+    }
+    item {
         SectionCard("Background") {
             Hint("Behind the weather and the caption, so they stay readable on any photo.")
             Choices(listOf("none" to "None", "pill" to "Soft shape", "frosted" to "Frosted glass"), l.bgStyle) { vm.setBgStyle(it) }
             if (l.bgStyle != "none") {
-                Label("Opacity: ${(l.bgOpacity * 100).roundToInt()}%")
-                LiveSlider(l.bgOpacity, 0.1f..0.9f) { vm.setBgOpacity(it) }
+                if (!l.autoOpacity) {
+                    Label("Opacity: ${(l.bgOpacity * 100).roundToInt()}%")
+                    LiveSlider(l.bgOpacity, 0.1f..0.9f) { vm.setBgOpacity(it) }
+                }
                 Label("Roundness")
                 LiveSlider(l.bgRound, 0f..1f) { vm.setBgRound(it) }
                 Label("Color")

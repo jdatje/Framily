@@ -190,6 +190,15 @@ class Prefs private constructor(context: Context) {
     var bgClock: Boolean
         get() = sp.getBoolean(BG_CLOCK, false)
         set(v) = sp.edit { putBoolean(BG_CLOCK, v) }
+    /** Opacity of text and backgrounds picked per photo and spot. */
+    var autoOpacity: Boolean
+        get() = sp.getBoolean(AUTO_OPACITY, true)
+        set(v) = sp.edit { putBoolean(AUTO_OPACITY, v) }
+    /** For automatic opacity: 0 = subtle … 1 = very clear. */
+    var readability: Float
+        get() = sp.getFloat(READABILITY, 0.5f)
+        set(v) = sp.edit { putFloat(READABILITY, v) }
+
     /** Thin edge around the letters. */
     var textOutline: Boolean
         get() = sp.getBoolean(TEXT_OUTLINE, false)
@@ -313,6 +322,8 @@ class Prefs private constructor(context: Context) {
         const val BG_COLOR = "bg_color"
         const val BG_CLOCK = "bg_clock"
         const val TEXT_OUTLINE = "text_outline"
+        const val AUTO_OPACITY = "auto_opacity"
+        const val READABILITY = "readability"
         const val NIGHT_DIM = "night_dim"
         const val NIGHT_DIM_STRENGTH = "night_dim_strength"
         const val RAIN_ALERT = "rain_alert"
@@ -336,7 +347,7 @@ class Prefs private constructor(context: Context) {
             WEATHER, WEATHER_FORECAST, WEATHER_PLACEMENT, WEATHER_DATA,
             WEATHER_SIZE, FORECAST_SIZE, FORECAST_VERTICAL, WEATHER_X, WEATHER_Y, FORECAST_X, FORECAST_Y,
             CLOCK_X, CLOCK_AUTO,
-            BG_STYLE, BG_OPACITY, BG_ROUND, BG_COLOR, BG_CLOCK, TEXT_OUTLINE, NIGHT_DIM, NIGHT_DIM_STRENGTH,
+            AUTO_OPACITY, READABILITY, BG_STYLE, BG_OPACITY, BG_ROUND, BG_COLOR, BG_CLOCK, TEXT_OUTLINE, NIGHT_DIM, NIGHT_DIM_STRENGTH,
             RAIN_ALERT, CAPTION, CAPTION_X, CAPTION_Y, CAPTION_TEXT,
         )
         const val DEPTH = "depth_enabled"

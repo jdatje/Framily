@@ -324,6 +324,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun setForecastVertical(on: Boolean) { prefs.forecastVertical = on }
     fun setClockAuto(on: Boolean) { prefs.clockAuto = on }
 
+    fun setAutoOpacity(on: Boolean) { prefs.autoOpacity = on }
+    fun setReadability(v: Float) { prefs.readability = v }
     fun setBgStyle(v: String) { prefs.bgStyle = v }
     fun setBgOpacity(v: Float) { prefs.bgOpacity = v }
     fun setBgRound(v: Float) { prefs.bgRound = v }

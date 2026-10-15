@@ -88,11 +88,11 @@ fun FamilyScreen(vm: FamilyViewModel, onBack: () -> Unit) {
             item { SettingsCard(s, vm, hasFamily = family.isNotEmpty()) }
 
             item { SectionTitle("Your family", if (family.isEmpty()) "Nobody yet. Name a group below." else null) }
-            items(family, key = { it.id }) { p -> PersonRow(p) { person = p } }
+            items(family, key = { "person-${it.id}" }) { p -> PersonRow(p) { person = p } }
 
             if (others.isNotEmpty()) {
                 item { SectionTitle("Other people you named", "Not counted as family") }
-                items(others, key = { it.id }) { p -> PersonRow(p) { person = p } }
+                items(others, key = { "person-${it.id}" }) { p -> PersonRow(p) { person = p } }
             }
 
             item {
@@ -101,7 +101,7 @@ fun FamilyScreen(vm: FamilyViewModel, onBack: () -> Unit) {
                     if (s.groups.isEmpty() && !s.loading) "No unnamed groups right now." else "Biggest groups first. Each group is usually one person.",
                 )
             }
-            items(s.groups, key = { it.cluster }) { g ->
+            items(s.groups, key = { "group-${it.cluster}" }) { g ->
                 GroupCard(
                     g,
                     onFamily = { naming = g },
