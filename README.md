@@ -26,6 +26,14 @@ Every push to `main` builds a new APK automatically (Actions tab → "Build APK"
 3. **Similar photos:** every photo gets a visual fingerprint. Burst shots of the same moment (and copies, like the WhatsApp copy of your own photo) are grouped; only the best-scoring one is used. Strictness is a setting.
 4. **Rotation:** only the best N photos (setting). Every photo in the pool comes by before one repeats.
 
+## Weather
+
+Optional: current weather ("⛅ 18°") and a strip with the next 4 hours (time, icon, temperature, chance of rain from 20%). It uses the clock's font, color and depth effect.
+
+- **Location:** your phone's approximate location (updated whenever you open Framily, so it follows you when you travel) or a fixed city.
+- **Position:** right under the clock, or at its own height.
+- Data from [Open-Meteo](https://open-meteo.com) (free, no account), refreshed once an hour while online.
+
 ## Battery
 
 The first scan of a large library takes a while, so it is careful with the battery:

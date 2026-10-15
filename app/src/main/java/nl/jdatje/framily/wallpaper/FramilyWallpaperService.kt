@@ -22,6 +22,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import nl.jdatje.framily.data.Prefs
 import nl.jdatje.framily.rotation.Rotator
+import nl.jdatje.framily.weather.WeatherRepo
 import kotlin.math.abs
 
 /**
@@ -37,6 +38,7 @@ class FramilyWallpaperService : WallpaperService() {
         private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
         private val prefs = Prefs.get(ctx)
         private val clock = ClockPainter(ctx)
+        private val weatherPainter = WeatherPainter(ctx)
         private val handler = Handler(Looper.getMainLooper())
 
         private var width = 0
@@ -180,20 +182,22 @@ class FramilyWallpaperService : WallpaperService() {
             } catch (e: Exception) {
                 null
             } ?: return
-            val style = ClockStyle.from(prefs)
+            val overlay = WallpaperRenderer.Overlay(
+                ClockStyle.from(prefs), clock, WeatherStyle.from(prefs), WeatherRepo.current(ctx), weatherPainter,
+            )
             var stillFading = false
             try {
                 val cur = current
                 val prev = previous
                 val t = if (fadeStart > 0) ((SystemClock.uptimeMillis() - fadeStart) / 600f).coerceIn(0f, 1f) else 1f
                 if (prev != null && t < 1f) {
-                    WallpaperRenderer.draw(canvas, prev, width, height, style, clock)
+                    WallpaperRenderer.draw(canvas, prev, width, height, overlay)
                     val save = canvas.saveLayerAlpha(null, (t * 255).toInt())
-                    WallpaperRenderer.draw(canvas, cur, width, height, style, clock)
+                    WallpaperRenderer.draw(canvas, cur, width, height, overlay)
                     canvas.restoreToCount(save)
                     stillFading = true
                 } else {
-                    WallpaperRenderer.draw(canvas, cur, width, height, style, clock)
+                    WallpaperRenderer.draw(canvas, cur, width, height, overlay)
                 }
             } finally {
                 holder.unlockCanvasAndPost(canvas)

@@ -1,6 +1,7 @@
 package nl.jdatje.framily
 
 import android.app.Application
+import nl.jdatje.framily.weather.WeatherRepo
 
 class FramilyApp : Application() {
     override fun onCreate() {
@@ -8,6 +9,7 @@ class FramilyApp : Application() {
         Notifications.createChannels(this)
         Scheduler.scheduleRotation(this)
         Scheduler.schedulePeriodicScan(this)
+        WeatherRepo.schedule(this)
 
         // A scan queued by an older version doesn't have the battery limits yet: re-queue it once.
         val prefs = getSharedPreferences("framily_internal", MODE_PRIVATE)

@@ -34,6 +34,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
@@ -56,6 +57,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.ImeAction
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
@@ -90,6 +94,7 @@ fun MainScreen(
     onRequestPermissions: () -> Unit,
     onOpenAppSettings: () -> Unit,
     onSetWallpaper: () -> Unit,
+    onRequestLocation: () -> Unit,
 ) {
     val s by vm.state.collectAsStateWithLifecycle()
     var selected by remember { mutableStateOf<PoolBuilder.Entry?>(null) }
@@ -122,6 +127,7 @@ fun MainScreen(
             item { RotationCard(s, vm) }
             item { ScanCard(s, vm) }
             item { ClockCard(s, vm) }
+            item { WeatherCard(s, vm, onRequestLocation) }
             item { FoldersCard(s, vm) }
 
             item {
@@ -437,6 +443,75 @@ private fun ClockCard(s: UiState, vm: MainViewModel) {
 
         SwitchRow("Show date", null, c.showDate) { vm.setClockDate(it) }
         SwitchRow("Depth effect", "People stand in front of the clock", c.depth) { vm.setDepth(it) }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun WeatherCard(s: UiState, vm: MainViewModel, onRequestLocation: () -> Unit) {
+    val w = s.weather ?: return
+    SectionCard("Weather") {
+        SwitchRow("Show weather", "Current weather on your wallpaper (preview in Clock above)", w.enabled) { vm.setWeather(it) }
+        if (!w.enabled) return@SectionCard
+
+        s.weatherSummary?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
+        s.weatherError?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+
+        Label("Location")
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilterChip(selected = s.weatherSource == "location", onClick = { vm.setWeatherSource("location") }, label = { Text("My location") })
+            FilterChip(selected = s.weatherSource == "city", onClick = { vm.setWeatherSource("city") }, label = { Text("A city") })
+        }
+        if (s.weatherSource == "location") {
+            if (!s.hasLocation) {
+                Text(
+                    "Framily only needs your approximate location. It updates when you open the app, so it follows you when you travel.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Button(onClick = onRequestLocation) { Text("Allow location") }
+            } else {
+                Text("📍 " + (s.weatherPlace?.ifBlank { "Your location" } ?: "Finding your location…"))
+            }
+        } else {
+            s.weatherPlace?.let { Text("📍 $it") }
+            var query by rememberSaveable { mutableStateOf("") }
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    label = { Text("City") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                    keyboardActions = KeyboardActions(onSearch = { vm.searchCity(query) }),
+                    modifier = Modifier.weight(1f),
+                )
+                FilledTonalButton(onClick = { vm.searchCity(query) }, enabled = !s.citySearching) {
+                    Text(if (s.citySearching) "…" else "Search")
+                }
+            }
+            s.cityResults.forEach { city ->
+                Text(
+                    city.label,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { vm.pickCity(city) }
+                        .padding(vertical = 10.dp),
+                )
+            }
+        }
+
+        SwitchRow("Next 4 hours", "Small forecast with temperature and chance of rain", w.forecast) { vm.setWeatherForecast(it) }
+
+        Label("Position")
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilterChip(selected = w.placement == "clock", onClick = { vm.setWeatherPlacement("clock") }, label = { Text("Under the clock") })
+            FilterChip(selected = w.placement != "clock", onClick = { vm.setWeatherPlacement("separate") }, label = { Text("Own position") })
+        }
+        if (w.placement != "clock") {
+            var pos by remember(w.position) { mutableFloatStateOf(w.position) }
+            Slider(value = pos, onValueChange = { pos = it }, onValueChangeFinished = { vm.setWeatherPosition(pos) }, valueRange = 0.1f..0.85f)
+        }
     }
 }
 

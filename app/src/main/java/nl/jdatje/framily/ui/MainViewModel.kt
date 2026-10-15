@@ -40,6 +40,14 @@ import nl.jdatje.framily.wallpaper.DepthSegmenter
 import nl.jdatje.framily.wallpaper.Frame
 import nl.jdatje.framily.wallpaper.WallpaperRenderer
 import kotlin.math.roundToInt
+import android.text.format.DateFormat
+import java.util.Date
+import nl.jdatje.framily.wallpaper.WeatherPainter
+import nl.jdatje.framily.wallpaper.WeatherStyle
+import nl.jdatje.framily.weather.City
+import nl.jdatje.framily.weather.WeatherApi
+import nl.jdatje.framily.weather.WeatherCodes
+import nl.jdatje.framily.weather.WeatherRepo
 
 data class UiState(
     val hasMedia: Boolean = false,
@@ -71,6 +79,14 @@ data class UiState(
     val doubleTap: Boolean = true,
     val clock: ClockStyle? = null,
     val preview: ImageBitmap? = null,
+    val weather: WeatherStyle? = null,
+    val weatherSource: String = "location",
+    val weatherPlace: String? = null,
+    val weatherSummary: String? = null,
+    val hasLocation: Boolean = false,
+    val cityResults: List<City> = emptyList(),
+    val citySearching: Boolean = false,
+    val weatherError: String? = null,
 )
 
 @OptIn(FlowPreview::class)
@@ -89,6 +105,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val previewW = 480
     private val previewH: Int = ImageUtils.screenSize(app).let { (w, h) -> (previewW * h.toFloat() / w).roundToInt() }
     private val clockPainter = ClockPainter(app)
+    private val weatherPainter = WeatherPainter(app)
     private var previewFrame: Frame? = null
     private var previewFrameDepth = false
     private var segmenter: DepthSegmenter? = null
@@ -145,6 +162,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
         if (hasMedia) refreshBuckets()
         refreshData()
+        if (prefs.weatherEnabled) updateWeather(force = false)
     }
 
     private fun refreshBuckets() = viewModelScope.launch(Dispatchers.IO) {
@@ -180,6 +198,15 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 lock = prefs.lockScreenEnabled,
                 doubleTap = prefs.doubleTapEnabled,
                 clock = ClockStyle.from(prefs),
+                weather = WeatherStyle.from(prefs),
+                weatherSource = prefs.weatherSource,
+                weatherPlace = prefs.weatherPlace?.third,
+                weatherSummary = WeatherRepo.current(ctx)?.let { w ->
+                    val now = w.now()
+                    val time = DateFormat.getTimeFormat(ctx).format(Date(w.fetchedAt))
+                    "${WeatherCodes.emoji(now.code, now.isDay)} ${now.temp.roundToInt()}° · updated $time"
+                },
+                hasLocation = WeatherRepo.hasLocationPermission(ctx),
             )
         }
         refreshPreview()
@@ -196,7 +223,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             previewFrameDepth = style.depth
         }
         val bmp = Bitmap.createBitmap(previewW, previewH, Bitmap.Config.ARGB_8888)
-        WallpaperRenderer.draw(Canvas(bmp), previewFrame, previewW, previewH, style, clockPainter)
+        val overlay = WallpaperRenderer.Overlay(
+            style, clockPainter, WeatherStyle.from(prefs), WeatherRepo.current(ctx), weatherPainter,
+        )
+        WallpaperRenderer.draw(Canvas(bmp), previewFrame, previewW, previewH, overlay)
         _state.update { it.copy(preview = bmp.asImageBitmap()) }
     }
 
@@ -234,6 +264,71 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun setClockColor(color: String) { prefs.clockColor = color }
     fun setClockOpacity(o: Float) { prefs.clockOpacity = o }
     fun setClockDate(on: Boolean) { prefs.clockDate = on }
+
+    fun setWeather(on: Boolean) {
+        prefs.weatherEnabled = on
+        WeatherRepo.schedule(ctx)
+        if (on) updateWeather(force = true)
+    }
+
+    fun setWeatherForecast(on: Boolean) { prefs.weatherForecast = on }
+    fun setWeatherPlacement(p: String) { prefs.weatherPlacement = p }
+    fun setWeatherPosition(p: Float) { prefs.weatherPosition = p }
+
+    fun setWeatherSource(source: String) {
+        prefs.weatherSource = source
+        if (source == "location") {
+            prefs.weatherPlace = null
+            updateWeather(force = true)
+        }
+        _state.update { it.copy(cityResults = emptyList(), weatherError = null) }
+    }
+
+    /** Get the phone's location (if that's the source) and fresh weather. */
+    fun updateWeather(force: Boolean) = viewModelScope.launch(Dispatchers.IO) {
+        val moved = WeatherRepo.updateFromPhoneLocation(ctx)
+        if (prefs.weatherSource == "location" && prefs.weatherPlace == null) {
+            _state.update {
+                it.copy(
+                    weatherError = if (WeatherRepo.hasLocationPermission(ctx)) {
+                        "Couldn't get your location. Is location turned on?"
+                    } else null
+                )
+            }
+            return@launch
+        }
+        val stale = WeatherRepo.current(ctx).let { it == null || System.currentTimeMillis() - it.fetchedAt > 45 * 60_000L }
+        if (force || moved || stale) {
+            val ok = WeatherRepo.refresh(ctx)
+            _state.update { it.copy(weatherError = if (ok) null else "Couldn't load the weather. Check your internet.") }
+        }
+        refreshData()
+    }
+
+    fun searchCity(query: String) {
+        if (query.isBlank()) return
+        _state.update { it.copy(citySearching = true, weatherError = null) }
+        viewModelScope.launch(Dispatchers.IO) {
+            val results = runCatching { WeatherApi.searchCity(query) }
+            _state.update {
+                it.copy(
+                    citySearching = false,
+                    cityResults = results.getOrDefault(emptyList()),
+                    weatherError = when {
+                        results.isFailure -> "Search failed. Check your internet."
+                        results.getOrNull().isNullOrEmpty() -> "No place found with that name."
+                        else -> null
+                    },
+                )
+            }
+        }
+    }
+
+    fun pickCity(city: City) {
+        prefs.weatherPlace = Triple(city.lat, city.lon, city.name)
+        _state.update { it.copy(cityResults = emptyList()) }
+        updateWeather(force = true)
+    }
 
     fun setLock(on: Boolean) {
         prefs.lockScreenEnabled = on

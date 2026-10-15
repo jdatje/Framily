@@ -1,5 +1,6 @@
 package nl.jdatje.framily.ui
 
+import android.Manifest
 import android.app.WallpaperManager
 import android.content.ComponentName
 import android.content.Intent
@@ -26,11 +27,15 @@ class MainActivity : ComponentActivity() {
                 val launcher = rememberLauncherForActivityResult(
                     ActivityResultContracts.RequestMultiplePermissions()
                 ) { vm.onResume() }
+                val locationLauncher = rememberLauncherForActivityResult(
+                    ActivityResultContracts.RequestPermission()
+                ) { vm.updateWeather(force = true) }
                 MainScreen(
                     vm = vm,
                     onRequestPermissions = { launcher.launch(Permissions.requestList) },
                     onOpenAppSettings = { openAppSettings() },
                     onSetWallpaper = { openWallpaperPicker() },
+                    onRequestLocation = { locationLauncher.launch(Manifest.permission.ACCESS_COARSE_LOCATION) },
                 )
             }
         }

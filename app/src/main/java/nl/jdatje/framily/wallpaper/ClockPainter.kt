@@ -146,15 +146,8 @@ class ClockPainter(private val context: Context) {
     }
 
     fun draw(canvas: Canvas, layout: Layout, style: ClockStyle, colors: PhotoColors) {
-        val base = when (style.color) {
-            "white" -> Color.WHITE
-            "black" -> 0xFF1C1B1F.toInt()
-            "photo_dark" -> colors.dark
-            else -> colors.light
-        }
-        val color = ColorUtils.setAlphaComponent(base, (style.opacity * 255).roundToInt().coerceIn(0, 255))
-        val darkText = ColorUtils.calculateLuminance(base) < 0.4
-        val shadow = if (darkText) 0x33FFFFFF else 0x55000000
+        val color = textColor(style, colors)
+        val shadow = shadowColor(style, colors)
 
         val now = Calendar.getInstance()
         val hour = if (DateFormat.is24HourFormat(context)) {
@@ -182,6 +175,22 @@ class ClockPainter(private val context: Context) {
             datePaint.setShadowLayer(layout.dateSize * 0.2f, 0f, layout.dateSize * 0.05f, shadow)
             canvas.drawText(dateText(), layout.centerX, layout.dateLine, datePaint)
         }
+    }
+
+    companion object {
+        private fun baseColor(style: ClockStyle, colors: PhotoColors) = when (style.color) {
+            "white" -> Color.WHITE
+            "black" -> 0xFF1C1B1F.toInt()
+            "photo_dark" -> colors.dark
+            else -> colors.light
+        }
+
+        fun textColor(style: ClockStyle, colors: PhotoColors): Int =
+            ColorUtils.setAlphaComponent(baseColor(style, colors), (style.opacity * 255).roundToInt().coerceIn(0, 255))
+
+        /** A soft shadow that contrasts with the text color. */
+        fun shadowColor(style: ClockStyle, colors: PhotoColors): Int =
+            if (ColorUtils.calculateLuminance(baseColor(style, colors)) < 0.4) 0x33FFFFFF else 0x55000000
     }
 
     /** e.g. "Thursday 15 October" (in the phone's language). */

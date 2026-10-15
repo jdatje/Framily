@@ -75,6 +75,50 @@ class Prefs private constructor(context: Context) {
         get() = sp.getBoolean(CLOCK_DATE, false)
         set(v) = sp.edit { putBoolean(CLOCK_DATE, v) }
 
+    var weatherEnabled: Boolean
+        get() = sp.getBoolean(WEATHER, false)
+        set(v) = sp.edit { putBoolean(WEATHER, v) }
+
+    var weatherForecast: Boolean
+        get() = sp.getBoolean(WEATHER_FORECAST, true)
+        set(v) = sp.edit { putBoolean(WEATHER_FORECAST, v) }
+
+    /** "clock" (right under the clock) or "separate" (own height on screen). */
+    var weatherPlacement: String
+        get() = sp.getString(WEATHER_PLACEMENT, "clock") ?: "clock"
+        set(v) = sp.edit { putString(WEATHER_PLACEMENT, v) }
+
+    var weatherPosition: Float
+        get() = sp.getFloat(WEATHER_POS, 0.72f)
+        set(v) = sp.edit { putFloat(WEATHER_POS, v) }
+
+    /** "location" (phone's approximate location) or "city". */
+    var weatherSource: String
+        get() = sp.getString(WEATHER_SOURCE, "location") ?: "location"
+        set(v) = sp.edit { putString(WEATHER_SOURCE, v) }
+
+    /** Where the weather is for; null when not known yet. */
+    var weatherPlace: Triple<Double, Double, String>?
+        get() {
+            val lat = sp.getString(WEATHER_LAT, null)?.toDoubleOrNull() ?: return null
+            val lon = sp.getString(WEATHER_LON, null)?.toDoubleOrNull() ?: return null
+            return Triple(lat, lon, sp.getString(WEATHER_PLACE_NAME, "") ?: "")
+        }
+        set(v) = sp.edit {
+            if (v == null) {
+                remove(WEATHER_LAT); remove(WEATHER_LON); remove(WEATHER_PLACE_NAME)
+            } else {
+                putString(WEATHER_LAT, v.first.toString())
+                putString(WEATHER_LON, v.second.toString())
+                putString(WEATHER_PLACE_NAME, v.third)
+            }
+        }
+
+    /** The last fetched weather, as JSON. */
+    var weatherData: String?
+        get() = sp.getString(WEATHER_DATA, null)
+        set(v) = sp.edit { putString(WEATHER_DATA, v) }
+
     /** Put people in front of the clock. */
     var depthEnabled: Boolean
         get() = sp.getBoolean(DEPTH, true)
@@ -128,10 +172,21 @@ class Prefs private constructor(context: Context) {
         const val CLOCK_OPACITY = "clock_opacity"
         const val CLOCK_DATE = "clock_date"
 
-        /** Settings that only change how the clock is drawn (no new photo needed). */
+        const val WEATHER = "weather_enabled"
+        const val WEATHER_FORECAST = "weather_forecast"
+        const val WEATHER_PLACEMENT = "weather_placement"
+        const val WEATHER_POS = "weather_position"
+        const val WEATHER_SOURCE = "weather_source"
+        const val WEATHER_LAT = "weather_lat"
+        const val WEATHER_LON = "weather_lon"
+        const val WEATHER_PLACE_NAME = "weather_place_name"
+        const val WEATHER_DATA = "weather_data"
+
+        /** Settings that only change what is drawn on top of the photo (no new photo needed). */
         val CLOCK_KEYS = setOf(
             "clock_enabled", "clock_position", CLOCK_FONT, CLOCK_LAYOUT,
             CLOCK_SIZE, CLOCK_COLOR, CLOCK_OPACITY, CLOCK_DATE,
+            WEATHER, WEATHER_FORECAST, WEATHER_PLACEMENT, WEATHER_POS, WEATHER_DATA,
         )
         const val DEPTH = "depth_enabled"
         const val LOCK = "lock_screen"

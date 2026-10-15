@@ -9,6 +9,7 @@ import android.graphics.Rect
 import android.util.Log
 import nl.jdatje.framily.data.PhotoDb
 import nl.jdatje.framily.util.ImageUtils
+import nl.jdatje.framily.weather.WeatherData
 
 /** One prepared wallpaper: the photo, the people cut out of it, and its colors. */
 class Frame(
@@ -52,22 +53,42 @@ object WallpaperRenderer {
         return Frame(photoId, bg, fg, PhotoColors.from(bg), colors)
     }
 
-    fun draw(canvas: Canvas, frame: Frame?, w: Int, h: Int, style: ClockStyle, clock: ClockPainter) {
+    /** What goes on top of the photo. */
+    class Overlay(
+        val clockStyle: ClockStyle,
+        val clock: ClockPainter,
+        val weatherStyle: WeatherStyle,
+        val weather: WeatherData?,
+        val weatherPainter: WeatherPainter,
+    )
+
+    fun draw(canvas: Canvas, frame: Frame?, w: Int, h: Int, o: Overlay) {
         val full = Rect(0, 0, w, h)
         val bg = frame?.bg
-        if (bg == null) {
-            canvas.drawColor(0xFF1B1B1F.toInt())
-            if (style.enabled) clock.draw(canvas, clock.layout(w, h, style), style.copy(color = "white"), PhotoColors.DEFAULT)
-            return
+        val style = if (bg == null) o.clockStyle.copy(color = "white") else o.clockStyle
+        val colors = frame?.clockColors ?: PhotoColors.DEFAULT
+        if (bg == null) canvas.drawColor(0xFF1B1B1F.toInt()) else canvas.drawBitmap(bg, null, full, bitmapPaint)
+
+        val clockLayout = if (style.enabled) o.clock.layout(w, h, style) else null
+        val weatherData = o.weather?.takeIf { o.weatherStyle.enabled }
+        val weatherLayout = weatherData?.let {
+            val top = if (o.weatherStyle.placement == "clock" && clockLayout != null) {
+                clockLayout.rect.bottom + w * 0.05f
+            } else {
+                h * o.weatherStyle.position
+            }
+            o.weatherPainter.layout(w, top, o.weatherStyle, it)
         }
-        canvas.drawBitmap(bg, null, full, bitmapPaint)
-        if (!style.enabled) return
-        val layout = clock.layout(w, h, style)
-        clock.draw(canvas, layout, style, frame.clockColors)
-        val fg = frame.fg
-        // If people would hide most of the time, keep the clock on top for this photo.
-        if (fg != null && style.depth && fg.coverage(layout.rect, w, h) < 0.45f) {
-            canvas.drawBitmap(fg.bitmap, null, full, bitmapPaint)
-        }
+
+        // People go in front of the clock and weather, unless they'd hide too much of them.
+        val fg = frame?.fg?.takeIf { style.depth }
+        val clockBehind = clockLayout != null && fg != null && fg.coverage(clockLayout.rect, w, h) < 0.45f
+        val weatherBehind = weatherLayout != null && fg != null && fg.coverage(weatherLayout.rect, w, h) < 0.25f
+
+        if (clockLayout != null && clockBehind) o.clock.draw(canvas, clockLayout, style, colors)
+        if (weatherLayout != null && weatherBehind) o.weatherPainter.draw(canvas, weatherLayout, weatherData, style, colors)
+        if (fg != null && (clockBehind || weatherBehind)) canvas.drawBitmap(fg.bitmap, null, full, bitmapPaint)
+        if (clockLayout != null && !clockBehind) o.clock.draw(canvas, clockLayout, style, colors)
+        if (weatherLayout != null && !weatherBehind) o.weatherPainter.draw(canvas, weatherLayout, weatherData, style, colors)
     }
 }
