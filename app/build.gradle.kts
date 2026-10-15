@@ -37,6 +37,9 @@ android {
     buildTypes {
         debug {
             signingConfig = signingConfigs.getByName("debug")
+            // Remove unused library code (makes the APK a lot smaller).
+            isMinifyEnabled = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
         }
     }
 
@@ -49,6 +52,10 @@ android {
     }
     buildFeatures {
         compose = true
+    }
+    // Store native libraries compressed: a much smaller download.
+    packaging {
+        jniLibs.useLegacyPackaging = true
     }
 }
 
