@@ -27,7 +27,8 @@ object AutoOpacity {
      */
     fun pick(photoLum: Float, busyness: Float, textLum: Float, target: Float): Result {
         // How much contrast we want: a subtle look accepts less, and busy spots need more.
-        val wanted = (2.2f + 4.3f * target) * (1f + busyness * 1.6f)
+        // On "subtle", busy backgrounds push less hard.
+        val wanted = (2.2f + 4.3f * target) * (1f + busyness * (0.6f + 1.4f * target))
         val have = contrast(photoLum, textLum)
         val shortfall = ((wanted - have) / wanted).coerceIn(0f, 1f)   // 0 = enough contrast
         val surplus = ((have - wanted) / wanted).coerceIn(0f, 1f)     // 0 = just enough
@@ -35,7 +36,8 @@ object AutoOpacity {
         // Text: more solid when contrast is short, more see-through when there's plenty.
         val text = if (shortfall > 0f) 0.85f + 0.15f * shortfall else 0.85f - 0.35f * surplus
         // Background: only as much as the text can't do by itself.
-        val background = (shortfall * 1.1f + busyness * 0.9f + 0.08f * target - surplus * 0.35f).coerceIn(0f, 0.85f)
+        val background = (shortfall * 1.1f + busyness * (0.3f + 0.8f * target) + 0.08f * target - surplus * 0.35f)
+            .coerceIn(0f, 0.85f)
         return Result(text.coerceIn(0.5f, 1f), background)
     }
 }

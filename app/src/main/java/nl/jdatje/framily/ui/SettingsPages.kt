@@ -297,6 +297,16 @@ fun LazyListScope.lookPage(s: UiState, vm: MainViewModel) {
                     Spacer(Modifier.weight(1f))
                     Hint("Very clear")
                 }
+                s.placed?.auto?.takeIf { it.isNotEmpty() }?.let { picked ->
+                    Label("On the current photo")
+                    picked.forEach { (name, v) ->
+                        val (text, bg) = v
+                        Hint(
+                            "$name: text ${(text * 100).roundToInt()}%" +
+                                if (name == "Clock" && s.look?.bgClock != true) "" else " · background ${(bg * 100).roundToInt()}%"
+                        )
+                    }
+                }
             }
         }
     }

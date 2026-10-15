@@ -141,10 +141,11 @@ object Ink {
             val path = Path().apply { addRoundRect(area, radius, radius, Path.Direction.CW) }
             canvas.save()
             canvas.clipPath(path)
-            paint.alpha = (min(1f, look.bgOpacity * 1.8f) * 255).roundToInt()
+            // Gentle at low settings: a hint of frost, not a block of blur.
+            paint.alpha = (min(1f, 0.15f + look.bgOpacity * 1.1f) * 255).roundToInt()
             canvas.drawBitmap(blurred, null, Rect(0, 0, w, h), paint)
             paint.alpha = 255
-            paint.color = ColorUtils.setAlphaComponent(tint, (look.bgOpacity * 0.8f * 255).roundToInt())
+            paint.color = ColorUtils.setAlphaComponent(tint, (look.bgOpacity * 0.7f * 255).roundToInt())
             canvas.drawRect(area, paint)
             canvas.restore()
         } else {
@@ -155,10 +156,47 @@ object Ink {
 
     /** A strongly blurred, small copy of the photo for frosted backgrounds. */
     fun blur(photo: Bitmap): Bitmap {
-        // Shrinking in steps and stretching back up gives a smooth blur, cheaply.
-        val mid = Bitmap.createScaledBitmap(photo, max(1, photo.width / 6), max(1, photo.height / 6), true)
-        val small = Bitmap.createScaledBitmap(mid, max(1, photo.width / 24), max(1, photo.height / 24), true)
+        // A copy at 1/8 size, blurred three times with a box blur: smooth when stretched back up
+        // (an even smaller copy would show blocks on busy photos like trees).
+        val mid = Bitmap.createScaledBitmap(photo, max(1, photo.width / 4), max(1, photo.height / 4), true)
+        val small = Bitmap.createScaledBitmap(mid, max(1, photo.width / 8), max(1, photo.height / 8), true)
         if (mid !== photo && mid !== small) mid.recycle()
-        return small
+        val w = small.width
+        val h = small.height
+        val px = IntArray(w * h)
+        small.getPixels(px, 0, w, 0, 0, w, h)
+        repeat(3) {
+            boxBlur(px, w, h, radius = 5, horizontal = true)
+            boxBlur(px, w, h, radius = 5, horizontal = false)
+        }
+        val out = Bitmap.createBitmap(px, w, h, Bitmap.Config.ARGB_8888)
+        if (small !== photo) small.recycle()
+        return out
+    }
+
+    /** One pass of a box blur along rows or columns (running sum, so it's fast). */
+    private fun boxBlur(px: IntArray, w: Int, h: Int, radius: Int, horizontal: Boolean) {
+        val len = if (horizontal) w else h
+        val lines = if (horizontal) h else w
+        val r = IntArray(len); val g = IntArray(len); val b = IntArray(len)
+        for (line in 0 until lines) {
+            fun idx(i: Int) = if (horizontal) line * w + i else i * w + line
+            for (i in 0 until len) {
+                val c = px[idx(i)]
+                r[i] = (c shr 16) and 0xFF; g[i] = (c shr 8) and 0xFF; b[i] = c and 0xFF
+            }
+            var sr = 0; var sg = 0; var sb = 0
+            val win = radius * 2 + 1
+            for (k in -radius..radius) {
+                val j = k.coerceIn(0, len - 1)
+                sr += r[j]; sg += g[j]; sb += b[j]
+            }
+            for (i in 0 until len) {
+                px[idx(i)] = (0xFF shl 24) or ((sr / win) shl 16) or ((sg / win) shl 8) or (sb / win)
+                val out = (i - radius).coerceIn(0, len - 1)
+                val inn = (i + radius + 1).coerceIn(0, len - 1)
+                sr += r[inn] - r[out]; sg += g[inn] - g[out]; sb += b[inn] - b[out]
+            }
+        }
     }
 }

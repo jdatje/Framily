@@ -72,7 +72,14 @@ object WallpaperRenderer {
     )
 
     /** Where each element ended up (screen pixels); used by the Arrange screen and for taps. */
-    class Placed(val clock: RectF?, val current: RectF?, val forecast: RectF?, val caption: RectF?)
+    class Placed(
+        val clock: RectF?,
+        val current: RectF?,
+        val forecast: RectF?,
+        val caption: RectF?,
+        /** What automatic opacity picked per element: text opacity and background opacity. */
+        val auto: Map<String, Pair<Float, Float>> = emptyMap(),
+    )
 
     private val captionPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         textAlign = Paint.Align.CENTER
@@ -164,7 +171,8 @@ object WallpaperRenderer {
          * Style and background for one element. With automatic opacity, text and background
          * opacity come from how readable the text is on the photo right behind it.
          */
-        fun lookFor(r: RectF, withBackground: Boolean): Pair<ClockStyle, LookStyle> {
+        val autoPicked = LinkedHashMap<String, Pair<Float, Float>>()
+        fun lookFor(name: String, r: RectF, withBackground: Boolean): Pair<ClockStyle, LookStyle> {
             val st = styleFor(r)
             if (!look.autoOpacity || bg == null) return st to look
             val (lum, busy) = Ink.stats(bg, Ink.padded(r, w), w, h)
@@ -174,26 +182,28 @@ object WallpaperRenderer {
             // (on calm, high-contrast spots it can still be see-through).
             val textOpacity = if (withBackground && look.bgStyle != "none") auto.text
             else (auto.text + auto.background * 0.6f).coerceIn(0.5f, 1f)
+            val bgShown = if (withBackground && look.bgStyle != "none") auto.background else 0f
+            autoPicked[name] = textOpacity to bgShown
             return st.copy(opacity = textOpacity) to look.copy(bgOpacity = auto.background)
         }
 
         fun drawClock() = clockLayout?.let {
-            val (st, lk) = lookFor(it.rect, look.bgClock)
+            val (st, lk) = lookFor("Clock", it.rect, look.bgClock)
             if (look.bgClock) Ink.backdrop(canvas, Ink.padded(it.rect, w), lk, isDark(st), frame?.blurred, w, h)
             o.clock.draw(canvas, it, st, colors, look.outline)
         }
         fun drawCurrent() = current?.let {
-            val (st, lk) = lookFor(it.rect, true)
+            val (st, lk) = lookFor("Weather", it.rect, true)
             Ink.backdrop(canvas, Ink.padded(it.rect, w), lk, isDark(st), frame?.blurred, w, h)
             o.weatherPainter.drawCurrent(canvas, it, data!!, st, colors, look.outline)
         }
         fun drawForecast() = forecast?.let {
-            val (st, lk) = lookFor(it.rect, true)
+            val (st, lk) = lookFor("Forecast", it.rect, true)
             Ink.backdrop(canvas, Ink.padded(it.rect, w), lk, isDark(st), frame?.blurred, w, h)
             o.weatherPainter.drawForecast(canvas, it, st, colors, look.outline)
         }
         fun drawCaption() = captionRect?.let { r ->
-            val (st, lk) = lookFor(r, true)
+            val (st, lk) = lookFor("Caption", r, true)
             Ink.backdrop(canvas, Ink.padded(r, w), lk, isDark(st), frame?.blurred, w, h)
             captionPaint.color = ClockPainter.textColor(st, colors)
             captionPaint.setShadowLayer(captionPaint.textSize * 0.2f, 0f, captionPaint.textSize * 0.05f, ClockPainter.shadowColor(st, colors))
@@ -220,6 +230,6 @@ object WallpaperRenderer {
         if (!forecastBehind) drawForecast()
         if (!captionBehind) drawCaption()
 
-        return Placed(clockLayout?.rect, current?.rect, forecast?.rect, captionRect)
+        return Placed(clockLayout?.rect, current?.rect, forecast?.rect, captionRect, autoPicked)
     }
 }
