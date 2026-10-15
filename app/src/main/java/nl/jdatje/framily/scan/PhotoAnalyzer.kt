@@ -9,6 +9,7 @@ import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.face.FaceDetection
 import com.google.mlkit.vision.face.FaceDetectorOptions
 import kotlinx.coroutines.tasks.await
+import nl.jdatje.framily.util.Fingerprint
 import nl.jdatje.framily.util.ImageUtils
 import java.io.Closeable
 import kotlin.math.abs
@@ -28,6 +29,7 @@ data class Analysis(
     val eyes: Float,
     val sharp: Float,
     val score: Float,
+    val phash: Long? = null,
 ) {
     companion object {
         fun empty(portrait: Boolean, width: Int, height: Int) =
@@ -102,7 +104,10 @@ class PhotoAnalyzer(private val context: Context) : Closeable {
                     0.15f * smile + 0.10f * frontal + 0.10f * position
                 )
 
-            return Analysis(true, w, h, significant.size, maxRatio, rects, smile, eyes, sharp, score)
+            return Analysis(
+                true, w, h, significant.size, maxRatio, rects, smile, eyes, sharp, score,
+                phash = Fingerprint.dHash(bmp),
+            )
         } finally {
             bmp.recycle()
         }

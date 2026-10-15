@@ -24,14 +24,6 @@
             </intent-filter>
         </activity>
 
-        <activity
-            android:name=".feedback.FeedbackActivity"
-            android:excludeFromRecents="true"
-            android:exported="false"
-            android:noHistory="true"
-            android:taskAffinity=""
-            android:theme="@style/Theme.Framily.Translucent" />
-
         <service
             android:name=".wallpaper.FramilyWallpaperService"
             android:exported="true"

@@ -23,17 +23,22 @@ Every push to `main` builds a new APK automatically (Actions tab → "Build APK"
 
 1. **Filter:** portrait photos only, from the folders you tick, with at least one face bigger than the minimum face size.
 2. **Score (0–100):** face size 25 · sharpness 25 · eyes open 15 · smiling 15 · looking at the camera 10 · faces well placed 10.
-3. **Rotation:** only the best N photos (setting). Every photo in the pool comes by before one repeats.
+3. **Similar photos:** every photo gets a visual fingerprint. Burst shots of the same moment (and copies, like the WhatsApp copy of your own photo) are grouped; only the best-scoring one is used. Strictness is a setting.
+4. **Rotation:** only the best N photos (setting). Every photo in the pool comes by before one repeats.
 
 ## Feedback
 
+- **Double-tap** an empty spot on the home screen: next photo (depends on the launcher passing taps through).
 - **Notification** "Current wallpaper" with *Skip*, *Not family* and *Never show*.
-- **Double-tap** an empty spot on the home screen opens the same choices (depends on the launcher passing taps through).
-- In the app, tap any photo in the rotation to show it now or remove it.
+- In the app: *Not family* / *Never show* under the current photo, and the same options on any photo in the rotation grid.
 
 ## Clock
 
-Hours on top, minutes below, in a color taken from the photo. With **Depth effect** on, people are cut out of the photo and drawn over the clock. If they would cover too much of the time, the clock stays on top for that photo.
+Fonts, stacked (07 / 50) or one line (07:50), size, color (from the photo, white or black), opacity, height and an optional date. The app shows a live preview using the real wallpaper code.
+
+With **Depth effect** on, people are cut out of the photo and drawn over the clock. If they would cover too much of the time, the clock stays on top for that photo.
+
+Bundled fonts (Anton, Bebas Neue, Righteous, DM Serif Display, Abril Fatface, Pacifico) are from Google Fonts under the SIL Open Font License.
 
 The lock screen option sets the same photo there without the Framily clock, since the phone shows its own.
 

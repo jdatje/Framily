@@ -1,6 +1,8 @@
 package nl.jdatje.framily.ui
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -43,6 +45,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -50,16 +53,35 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import nl.jdatje.framily.data.Photo
+import nl.jdatje.framily.feedback.Feedback
+import nl.jdatje.framily.rotation.PoolBuilder
+import nl.jdatje.framily.wallpaper.ClockFonts
+import nl.jdatje.framily.wallpaper.ClockStyle
 import kotlin.math.roundToInt
+import androidx.compose.ui.text.font.Typeface as ComposeTypeface
 
 private val intervals = listOf(
     30 to "30 min", 60 to "1 h", 120 to "2 h", 180 to "3 h", 360 to "6 h", 720 to "12 h", 1440 to "1 day"
+)
+
+private val dedupeOptions = listOf(
+    PoolBuilder.OFF to "Keep all",
+    PoolBuilder.STRICT to "Very similar",
+    PoolBuilder.LOOSE to "Also somewhat similar",
+)
+
+private val clockColors = listOf(
+    "photo" to "Light from photo",
+    "photo_dark" to "Dark from photo",
+    "white" to "White",
+    "black" to "Black",
 )
 
 @Composable
@@ -70,7 +92,7 @@ fun MainScreen(
     onSetWallpaper: () -> Unit,
 ) {
     val s by vm.state.collectAsStateWithLifecycle()
-    var selected by remember { mutableStateOf<Photo?>(null) }
+    var selected by remember { mutableStateOf<PoolBuilder.Entry?>(null) }
     var confirmRescan by remember { mutableStateOf(false) }
 
     Scaffold { inner ->
@@ -108,15 +130,17 @@ fun MainScreen(
                     modifier = Modifier.padding(top = 8.dp),
                 )
                 Text(
-                    "Best first. Tap a photo to show it now or remove it.",
+                    "Best first. \"+2\" means 2 similar photos were left out for this one. Tap a photo for options.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
             items(s.pool.chunked(3)) { row ->
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    row.forEach { photo ->
-                        PoolTile(photo, isCurrent = photo.id == s.current?.id, Modifier.weight(1f)) { selected = photo }
+                    row.forEach { entry ->
+                        PoolTile(entry, isCurrent = entry.photo.id == s.current?.id, Modifier.weight(1f)) {
+                            selected = entry
+                        }
                     }
                     repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
                 }
@@ -126,12 +150,13 @@ fun MainScreen(
         }
     }
 
-    selected?.let { photo ->
+    selected?.let { entry ->
         PhotoDialog(
-            photo = photo,
+            entry = entry,
             onDismiss = { selected = null },
-            onShow = { vm.showNow(photo); selected = null },
-            onRemove = { vm.remove(photo); selected = null },
+            onShow = { vm.showNow(entry.photo); selected = null },
+            onNotFamily = { vm.feedback(entry.photo, Feedback.NOT_FAMILY); selected = null },
+            onRemove = { vm.feedback(entry.photo, Feedback.NEVER); selected = null },
         )
     }
 
@@ -154,6 +179,11 @@ private fun SectionCard(title: String, content: @Composable () -> Unit) {
             content()
         }
     }
+}
+
+@Composable
+private fun Label(text: String) {
+    Text(text, style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 4.dp))
 }
 
 @Composable
@@ -209,9 +239,14 @@ private fun StatusCard(s: UiState, vm: MainViewModel) {
             )
         }
         Text(
-            "${s.qualifying} photos meet the criteria · using the best ${minOf(s.qualifying, s.poolSize)}",
+            "${s.qualifying} photos meet the criteria",
             style = MaterialTheme.typography.bodyLarge,
             fontWeight = FontWeight.Medium,
+        )
+        val left = s.qualifying - s.unique
+        Text(
+            (if (left > 0) "$left similar photos grouped · " else "") + "using the best ${minOf(s.unique, s.poolSize)}",
+            style = MaterialTheme.typography.bodyMedium,
         )
         Text(
             "${s.scanned} photos scanned so far",
@@ -230,9 +265,13 @@ private fun StatusCard(s: UiState, vm: MainViewModel) {
                         .clip(RoundedCornerShape(8.dp)),
                 )
                 Spacer(Modifier.width(12.dp))
-                Column {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text("Now on your home screen", style = MaterialTheme.typography.labelLarge)
                     Text("Score ${cur.score.roundToInt()} · ${cur.bucketName}", style = MaterialTheme.typography.bodySmall)
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        TextButton(onClick = { vm.feedback(cur, Feedback.NOT_FAMILY) }) { Text("Not family") }
+                        TextButton(onClick = { vm.feedback(cur, Feedback.NEVER) }) { Text("Never show") }
+                    }
                 }
             }
         }
@@ -251,7 +290,7 @@ private fun StatusCard(s: UiState, vm: MainViewModel) {
 @Composable
 private fun RotationCard(s: UiState, vm: MainViewModel) {
     SectionCard("Rotation") {
-        Text("Change every", style = MaterialTheme.typography.labelLarge)
+        Label("Change every")
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             intervals.forEach { (minutes, label) ->
                 FilterChip(selected = s.interval == minutes, onClick = { vm.setInterval(minutes) }, label = { Text(label) })
@@ -259,7 +298,7 @@ private fun RotationCard(s: UiState, vm: MainViewModel) {
         }
 
         var pool by remember(s.poolSize) { mutableFloatStateOf(s.poolSize.toFloat()) }
-        Text("Photos in rotation: ${pool.roundToInt()}", style = MaterialTheme.typography.labelLarge)
+        Label("Photos in rotation: ${pool.roundToInt()}")
         Slider(
             value = pool,
             onValueChange = { pool = it },
@@ -269,7 +308,7 @@ private fun RotationCard(s: UiState, vm: MainViewModel) {
         )
 
         var face by remember(s.minFace) { mutableFloatStateOf(s.minFace.toFloat()) }
-        Text("Minimum face size: ${face.roundToInt()}% of the photo height", style = MaterialTheme.typography.labelLarge)
+        Label("Minimum face size: ${face.roundToInt()}% of the photo height")
         Slider(
             value = face,
             onValueChange = { face = it },
@@ -278,26 +317,79 @@ private fun RotationCard(s: UiState, vm: MainViewModel) {
             steps = 25,
         )
 
+        Label("Group similar photos (keeps only the best one)")
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            dedupeOptions.forEach { (level, label) ->
+                FilterChip(selected = s.dedupe == level, onClick = { vm.setDedupe(level) }, label = { Text(label) })
+            }
+        }
+
         SwitchRow("Also on lock screen", "Same photo, without the Framily clock", s.lock) { vm.setLock(it) }
-        SwitchRow("Double-tap home screen", "Opens Skip / Not family / Never show", s.doubleTap) { vm.setDoubleTap(it) }
+        SwitchRow("Double-tap home screen", "Shows the next photo", s.doubleTap) { vm.setDoubleTap(it) }
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ClockCard(s: UiState, vm: MainViewModel) {
+    val c: ClockStyle = s.clock ?: return
+    val context = LocalContext.current
     SectionCard("Clock") {
-        SwitchRow("Show clock", null, s.clock) { vm.setClock(it) }
-        if (s.clock) {
-            SwitchRow("Depth effect", "People stand in front of the clock", s.depth) { vm.setDepth(it) }
-            var pos by remember(s.clockPos) { mutableFloatStateOf(s.clockPos) }
-            Text("Height on screen", style = MaterialTheme.typography.labelLarge)
-            Slider(
-                value = pos,
-                onValueChange = { pos = it },
-                onValueChangeFinished = { vm.setClockPos(pos) },
-                valueRange = 0.08f..0.55f,
-            )
+        s.preview?.let { preview ->
+            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                Image(
+                    bitmap = preview,
+                    contentDescription = "Preview",
+                    modifier = Modifier
+                        .width(170.dp)
+                        .aspectRatio(preview.width.toFloat() / preview.height)
+                        .clip(RoundedCornerShape(16.dp))
+                        .border(BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), RoundedCornerShape(16.dp)),
+                )
+            }
         }
+        SwitchRow("Show clock", null, c.enabled) { vm.setClock(it) }
+        if (!c.enabled) return@SectionCard
+
+        Label("Font")
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            ClockFonts.options.forEach { opt ->
+                val family = remember(opt.id) { FontFamily(ComposeTypeface(ClockFonts.typeface(context, opt.id))) }
+                FilterChip(
+                    selected = c.font == opt.id,
+                    onClick = { vm.setClockFont(opt.id) },
+                    label = { Text(opt.label, fontFamily = family) },
+                )
+            }
+        }
+
+        Label("Layout")
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilterChip(selected = c.stacked, onClick = { vm.setClockLayout("stacked") }, label = { Text("Stacked 07 / 50") })
+            FilterChip(selected = !c.stacked, onClick = { vm.setClockLayout("line") }, label = { Text("One line 07:50") })
+        }
+
+        Label("Color")
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            clockColors.forEach { (id, label) ->
+                FilterChip(selected = c.color == id, onClick = { vm.setClockColor(id) }, label = { Text(label) })
+            }
+        }
+
+        var size by remember(c.size) { mutableFloatStateOf(c.size) }
+        Label("Size")
+        Slider(value = size, onValueChange = { size = it }, onValueChangeFinished = { vm.setClockSize(size) }, valueRange = 0.5f..1.4f)
+
+        var opacity by remember(c.opacity) { mutableFloatStateOf(c.opacity) }
+        Label("Opacity: ${(opacity * 100).roundToInt()}%")
+        Slider(value = opacity, onValueChange = { opacity = it }, onValueChangeFinished = { vm.setClockOpacity(opacity) }, valueRange = 0.3f..1f)
+
+        var pos by remember(c.position) { mutableFloatStateOf(c.position) }
+        Label("Height on screen")
+        Slider(value = pos, onValueChange = { pos = it }, onValueChangeFinished = { vm.setClockPos(pos) }, valueRange = 0.06f..0.6f)
+
+        SwitchRow("Show date", null, c.showDate) { vm.setClockDate(it) }
+        SwitchRow("Depth effect", "People stand in front of the clock", c.depth) { vm.setDepth(it) }
     }
 }
 
@@ -322,34 +414,55 @@ private fun SwitchRow(title: String, subtitle: String?, checked: Boolean, onChan
 
 @Composable
 private fun FoldersCard(s: UiState, vm: MainViewModel) {
-    SectionCard("Folders") {
-        if (!s.hasMedia) {
-            Text("Allow access to photos first.")
-            return@SectionCard
-        }
-        if (s.buckets.isEmpty()) Text("Loading folders…")
-        s.buckets.forEach { b ->
+    var expanded by rememberSaveable { mutableStateOf(false) }
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Row(
                 Modifier
                     .fillMaxWidth()
-                    .clickable { vm.toggleBucket(b.id) },
+                    .clickable { expanded = !expanded },
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Checkbox(checked = b.id in s.selectedBuckets, onCheckedChange = { vm.toggleBucket(b.id) })
-                Text(b.name, Modifier.weight(1f))
-                Text(
-                    "${b.count}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                Column(Modifier.weight(1f)) {
+                    Text("Folders", style = MaterialTheme.typography.titleMedium)
+                    val names = s.buckets.filter { it.id in s.selectedBuckets }.joinToString(", ") { it.name }
+                    Text(
+                        if (!s.hasMedia) "Allow access to photos first" else names.ifEmpty { "None selected" },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Text(if (expanded) "▲" else "▼", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            AnimatedVisibility(visible = expanded && s.hasMedia) {
+                Column {
+                    if (s.buckets.isEmpty()) Text("Loading folders…")
+                    s.buckets.forEach { b ->
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .clickable { vm.toggleBucket(b.id) },
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Checkbox(checked = b.id in s.selectedBuckets, onCheckedChange = { vm.toggleBucket(b.id) })
+                            Text(b.name, Modifier.weight(1f))
+                            Text(
+                                "${b.count}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
             }
         }
     }
 }
 
 @Composable
-private fun PoolTile(photo: Photo, isCurrent: Boolean, modifier: Modifier, onClick: () -> Unit) {
+private fun PoolTile(entry: PoolBuilder.Entry, isCurrent: Boolean, modifier: Modifier, onClick: () -> Unit) {
     val context = LocalContext.current
+    val photo = entry.photo
     Box(
         modifier
             .aspectRatio(0.75f)
@@ -366,23 +479,34 @@ private fun PoolTile(photo: Photo, isCurrent: Boolean, modifier: Modifier, onCli
             contentScale = ContentScale.Crop,
             modifier = Modifier.fillMaxSize(),
         )
-        Surface(
-            color = Color.Black.copy(alpha = 0.55f),
-            shape = RoundedCornerShape(topEnd = 8.dp),
-            modifier = Modifier.align(Alignment.BottomStart),
-        ) {
-            Text(
-                "${photo.score.roundToInt()}",
-                color = Color.White,
-                style = MaterialTheme.typography.labelMedium,
-                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-            )
+        Badge("${photo.score.roundToInt()}", Modifier.align(Alignment.BottomStart), RoundedCornerShape(topEnd = 8.dp))
+        if (entry.similar > 0) {
+            Badge("+${entry.similar}", Modifier.align(Alignment.TopEnd), RoundedCornerShape(bottomStart = 8.dp))
         }
     }
 }
 
 @Composable
-private fun PhotoDialog(photo: Photo, onDismiss: () -> Unit, onShow: () -> Unit, onRemove: () -> Unit) {
+private fun Badge(text: String, modifier: Modifier, shape: RoundedCornerShape) {
+    Surface(color = Color.Black.copy(alpha = 0.55f), shape = shape, modifier = modifier) {
+        Text(
+            text,
+            color = Color.White,
+            style = MaterialTheme.typography.labelMedium,
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+        )
+    }
+}
+
+@Composable
+private fun PhotoDialog(
+    entry: PoolBuilder.Entry,
+    onDismiss: () -> Unit,
+    onShow: () -> Unit,
+    onNotFamily: () -> Unit,
+    onRemove: () -> Unit,
+) {
+    val photo = entry.photo
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Score ${photo.score.roundToInt()}") },
@@ -400,13 +524,19 @@ private fun PhotoDialog(photo: Photo, onDismiss: () -> Unit, onShow: () -> Unit,
                 Text(
                     "${photo.faceCount} face(s) · largest ${(photo.faceRatio * 100).roundToInt()}% of height\n" +
                         "Sharp ${pct(photo.sharp)} · Eyes open ${pct(photo.eyes)} · Smiling ${pct(photo.smile)}\n" +
-                        photo.bucketName,
+                        photo.bucketName +
+                        (if (entry.similar > 0) " · best of ${entry.similar + 1} similar photos" else ""),
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
         },
         confirmButton = { TextButton(onClick = onShow) { Text("Show now") } },
-        dismissButton = { TextButton(onClick = onRemove) { Text("Remove") } },
+        dismissButton = {
+            Row {
+                TextButton(onClick = onNotFamily) { Text("Not family") }
+                TextButton(onClick = onRemove) { Text("Remove") }
+            }
+        },
     )
 }
 
@@ -420,7 +550,7 @@ private fun MaintenanceCard(s: UiState, vm: MainViewModel, onRescan: () -> Unit)
         }
         OutlinedButton(onClick = onRescan, enabled = s.hasMedia && !s.scanRunning) { Text("Rescan all photos") }
         Text(
-            "Face recognition (only your family) comes in the next version. For now, any clear face counts.",
+            "Face recognition (only your family) comes in a next version. \"Not family\" choices are saved so it can learn from them.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

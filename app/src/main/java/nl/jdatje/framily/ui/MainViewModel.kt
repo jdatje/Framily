@@ -2,6 +2,10 @@ package nl.jdatje.framily.ui
 
 import android.app.Application
 import android.app.WallpaperManager
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.work.WorkInfo
@@ -15,6 +19,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import nl.jdatje.framily.Permissions
 import nl.jdatje.framily.Scheduler
 import nl.jdatje.framily.data.Bucket
@@ -22,9 +28,18 @@ import nl.jdatje.framily.data.MediaRepo
 import nl.jdatje.framily.data.Photo
 import nl.jdatje.framily.data.PhotoDb
 import nl.jdatje.framily.data.Prefs
+import nl.jdatje.framily.feedback.Feedback
 import nl.jdatje.framily.rotation.LockScreen
+import nl.jdatje.framily.rotation.PoolBuilder
 import nl.jdatje.framily.rotation.Rotator
 import nl.jdatje.framily.scan.ScanWorker
+import nl.jdatje.framily.util.ImageUtils
+import nl.jdatje.framily.wallpaper.ClockPainter
+import nl.jdatje.framily.wallpaper.ClockStyle
+import nl.jdatje.framily.wallpaper.DepthSegmenter
+import nl.jdatje.framily.wallpaper.Frame
+import nl.jdatje.framily.wallpaper.WallpaperRenderer
+import kotlin.math.roundToInt
 
 data class UiState(
     val hasMedia: Boolean = false,
@@ -38,17 +53,18 @@ data class UiState(
     val scanTotal: Int = 0,
     val scanned: Int = 0,
     val qualifying: Int = 0,
-    val pool: List<Photo> = emptyList(),
+    val unique: Int = 0,
+    val pool: List<PoolBuilder.Entry> = emptyList(),
     val current: Photo? = null,
     val blocked: Int = 0,
     val interval: Int = 120,
     val poolSize: Int = 40,
     val minFace: Int = 10,
-    val clock: Boolean = true,
-    val clockPos: Float = 0.18f,
-    val depth: Boolean = true,
+    val dedupe: Int = PoolBuilder.STRICT,
     val lock: Boolean = false,
     val doubleTap: Boolean = true,
+    val clock: ClockStyle? = null,
+    val preview: ImageBitmap? = null,
 )
 
 @OptIn(FlowPreview::class)
@@ -62,9 +78,18 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     private var lastRefreshAt = 0
 
+    // Clock preview: a small copy of the wallpaper, drawn by the same code as the real one.
+    private val previewMutex = Mutex()
+    private val previewW = 480
+    private val previewH: Int = ImageUtils.screenSize(app).let { (w, h) -> (previewW * h.toFloat() / w).roundToInt() }
+    private val clockPainter = ClockPainter(app)
+    private var previewFrame: Frame? = null
+    private var previewFrameDepth = false
+    private var segmenter: DepthSegmenter? = null
+
     init {
         viewModelScope.launch {
-            prefs.changes().debounce(200).collect { refreshData() }
+            prefs.changes().debounce(150).collect { refreshData() }
         }
         viewModelScope.launch {
             WorkManager.getInstance(app)
@@ -83,6 +108,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     if (running == null) lastRefreshAt = 0
                 }
         }
+    }
+
+    override fun onCleared() {
+        segmenter?.close()
+        super.onCleared()
     }
 
     /** Called whenever the app comes to the front. */
@@ -108,32 +138,49 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             prefs.selectedBuckets = MediaRepo.defaultBuckets(buckets)
             prefs.bucketsInitialized = true
             Scheduler.scanNow(ctx) // first run: start right away
+        } else if (db.missingHash(prefs.selectedBuckets).isNotEmpty()) {
+            Scheduler.scanNow(ctx) // after an update: fingerprint photos scanned by the old version
         }
         _state.update { it.copy(buckets = buckets) }
     }
 
     fun refreshData() = viewModelScope.launch(Dispatchers.IO) {
-        val buckets = prefs.selectedBuckets
-        val minRatio = prefs.minFacePercent / 100f
-        val pool = db.pool(buckets, minRatio, prefs.poolSize)
+        val result = PoolBuilder.build(ctx)
+        val current = prefs.currentPhotoId.takeIf { it >= 0 }?.let { db.get(it) }
         _state.update {
             it.copy(
-                selectedBuckets = buckets,
+                selectedBuckets = prefs.selectedBuckets,
                 scanned = db.scannedCount(),
-                qualifying = db.qualifyingCount(buckets, minRatio),
-                pool = pool,
-                current = prefs.currentPhotoId.takeIf { id -> id >= 0 }?.let { id -> db.get(id) },
+                qualifying = result.qualifying,
+                unique = result.unique,
+                pool = result.entries,
+                current = current,
                 blocked = db.blockedCount(),
                 interval = prefs.intervalMinutes,
                 poolSize = prefs.poolSize,
                 minFace = prefs.minFacePercent,
-                clock = prefs.clockEnabled,
-                clockPos = prefs.clockPosition,
-                depth = prefs.depthEnabled,
+                dedupe = prefs.dedupeLevel,
                 lock = prefs.lockScreenEnabled,
                 doubleTap = prefs.doubleTapEnabled,
+                clock = ClockStyle.from(prefs),
             )
         }
+        refreshPreview()
+    }
+
+    private suspend fun refreshPreview() = previewMutex.withLock {
+        val style = ClockStyle.from(prefs)
+        val id = prefs.currentPhotoId
+        val frame = previewFrame
+        if (frame == null || frame.photoId != id || previewFrameDepth != style.depth) {
+            previewFrame = WallpaperRenderer.buildFrame(ctx, id, previewW, previewH, style.depth) {
+                segmenter ?: DepthSegmenter().also { segmenter = it }
+            }
+            previewFrameDepth = style.depth
+        }
+        val bmp = Bitmap.createBitmap(previewW, previewH, Bitmap.Config.ARGB_8888)
+        WallpaperRenderer.draw(Canvas(bmp), previewFrame, previewW, previewH, style, clockPainter)
+        _state.update { it.copy(preview = bmp.asImageBitmap()) }
     }
 
     fun setInterval(minutes: Int) {
@@ -143,10 +190,18 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setPoolSize(n: Int) { prefs.poolSize = n }
     fun setMinFace(p: Int) { prefs.minFacePercent = p }
+    fun setDedupe(level: Int) { prefs.dedupeLevel = level }
+    fun setDoubleTap(on: Boolean) { prefs.doubleTapEnabled = on }
+
     fun setClock(on: Boolean) { prefs.clockEnabled = on }
     fun setClockPos(p: Float) { prefs.clockPosition = p }
     fun setDepth(on: Boolean) { prefs.depthEnabled = on }
-    fun setDoubleTap(on: Boolean) { prefs.doubleTapEnabled = on }
+    fun setClockFont(id: String) { prefs.clockFont = id }
+    fun setClockLayout(layout: String) { prefs.clockLayout = layout }
+    fun setClockSize(size: Float) { prefs.clockSize = size }
+    fun setClockColor(color: String) { prefs.clockColor = color }
+    fun setClockOpacity(o: Float) { prefs.clockOpacity = o }
+    fun setClockDate(on: Boolean) { prefs.clockDate = on }
 
     fun setLock(on: Boolean) {
         prefs.lockScreenEnabled = on
@@ -170,9 +225,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun showNow(photo: Photo) = viewModelScope.launch { Rotator.show(ctx, photo) }
 
-    fun remove(photo: Photo) = viewModelScope.launch(Dispatchers.IO) {
-        db.block(photo.id, "never")
-        if (photo.id == prefs.currentPhotoId) Rotator.next(ctx)
+    /** "Not family" / "Never show": removes the photo, and moves on if it was on screen. */
+    fun feedback(photo: Photo, action: String) = viewModelScope.launch(Dispatchers.IO) {
+        if (photo.id == prefs.currentPhotoId) {
+            Feedback.handle(ctx, action, photo.id)
+        } else {
+            db.block(photo.id, action)
+        }
         refreshData()
     }
 

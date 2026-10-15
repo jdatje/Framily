@@ -1,7 +1,9 @@
 package nl.jdatje.framily.scan
 
+import android.content.ContentUris
 import android.content.Context
 import android.content.pm.ServiceInfo
+import android.provider.MediaStore
 import android.util.Log
 import androidx.work.CoroutineWorker
 import androidx.work.ForegroundInfo
@@ -14,7 +16,10 @@ import nl.jdatje.framily.Permissions
 import nl.jdatje.framily.data.MediaRepo
 import nl.jdatje.framily.data.PhotoDb
 import nl.jdatje.framily.data.Prefs
+import nl.jdatje.framily.rotation.PoolBuilder
 import nl.jdatje.framily.rotation.Rotator
+import nl.jdatje.framily.util.Fingerprint
+import nl.jdatje.framily.util.ImageUtils
 
 /**
  * Goes through the selected folders and analyses every photo it hasn't seen yet.
@@ -70,9 +75,29 @@ class ScanWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
         val toDecode = portraitOrUnknown.sortedByDescending { it.dateTaken }
         db.tx { landscape.forEach { db.upsert(it, Analysis.empty(false, it.width, it.height)) } }
 
-        val total = toDecode.size
+        // Photos scanned by an older version only need a fingerprint, not a full analysis.
+        val needHash = db.missingHash(buckets)
+
+        val total = toDecode.size + needHash.size
         setProgress(workDataOf(DONE to 0, TOTAL to total))
         var done = 0
+
+        for (chunk in needHash.chunked(50)) {
+            if (isStopped) break
+            val hashes = chunk.mapNotNull { id ->
+                val uri = ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id)
+                val bmp = ImageUtils.decodeScaled(ctx, uri, 256) ?: return@mapNotNull null
+                try {
+                    id to Fingerprint.dHash(bmp)
+                } finally {
+                    bmp.recycle()
+                }
+            }
+            db.tx { hashes.forEach { (id, h) -> db.setHash(id, h) } }
+            done += chunk.size
+            setProgress(workDataOf(DONE to done, TOTAL to total))
+        }
+
         PhotoAnalyzer(ctx).use { analyzer ->
             for (chunk in toDecode.chunked(20)) {
                 if (isStopped) break
@@ -90,7 +115,7 @@ class ScanWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
                 if (done % 200 < chunk.size) tryForeground(done, total)
                 // First run: show a wallpaper as soon as there is a usable photo.
                 if (prefs.currentPhotoId < 0 &&
-                    db.pool(buckets, prefs.minFacePercent / 100f, 1).isNotEmpty()
+                    db.qualifying(buckets, prefs.minFacePercent / 100f).isNotEmpty()
                 ) {
                     Rotator.next(ctx)
                 }
@@ -98,7 +123,7 @@ class ScanWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
         }
 
         // Make sure something sensible is on screen.
-        val pool = db.pool(buckets, prefs.minFacePercent / 100f, prefs.poolSize)
+        val pool = PoolBuilder.build(ctx).photos
         if (pool.isNotEmpty() && pool.none { it.id == prefs.currentPhotoId }) {
             Rotator.next(ctx)
         }

@@ -7,17 +7,11 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.SharedPreferences
-import android.graphics.Bitmap
-import android.graphics.Canvas
-import android.graphics.Color
-import android.graphics.Paint
-import android.graphics.Rect
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.service.wallpaper.WallpaperService
-import android.util.Log
 import android.view.SurfaceHolder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -26,10 +20,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import nl.jdatje.framily.data.PhotoDb
 import nl.jdatje.framily.data.Prefs
-import nl.jdatje.framily.feedback.FeedbackActivity
-import nl.jdatje.framily.util.ImageUtils
+import nl.jdatje.framily.rotation.Rotator
 import kotlin.math.abs
 
 /**
@@ -40,21 +32,12 @@ class FramilyWallpaperService : WallpaperService() {
 
     override fun onCreateEngine(): Engine = FramilyEngine()
 
-    private class Frame(
-        val photoId: Long,
-        val bg: Bitmap?,
-        val fg: Foreground?,
-        val clockColor: Int,
-        val colors: WallpaperColors?,
-    )
-
     private inner class FramilyEngine : Engine(), SharedPreferences.OnSharedPreferenceChangeListener {
         private val ctx: Context = this@FramilyWallpaperService
         private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
         private val prefs = Prefs.get(ctx)
         private val clock = ClockPainter(ctx)
         private val handler = Handler(Looper.getMainLooper())
-        private val bitmapPaint = Paint(Paint.FILTER_BITMAP_FLAG)
 
         private var width = 0
         private var height = 0
@@ -114,7 +97,7 @@ class FramilyWallpaperService : WallpaperService() {
             when (key) {
                 Prefs.CURRENT -> load()
                 Prefs.DEPTH -> load(force = true)
-                Prefs.CLOCK, Prefs.CLOCK_POS -> drawFrame()
+                in Prefs.CLOCK_KEYS -> drawFrame()
             }
         }
 
@@ -127,23 +110,19 @@ class FramilyWallpaperService : WallpaperService() {
             return super.onCommand(action, x, y, z, extras, resultRequested)
         }
 
+        /** Double-tap on an empty spot of the home screen = next photo. */
         private fun handleTap(x: Int, y: Int) {
             val now = SystemClock.uptimeMillis()
             if (now - lastTapTime < 400 && abs(x - lastTapX) < 150 && abs(y - lastTapY) < 150) {
                 lastTapTime = 0
-                if (prefs.doubleTapEnabled) openFeedback()
+                if (prefs.doubleTapEnabled) {
+                    val app = ctx.applicationContext
+                    CoroutineScope(Dispatchers.IO).launch { Rotator.next(app) }
+                }
             } else {
                 lastTapTime = now
                 lastTapX = x
                 lastTapY = y
-            }
-        }
-
-        private fun openFeedback() {
-            try {
-                startActivity(Intent(ctx, FeedbackActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-            } catch (e: Exception) {
-                Log.w(TAG, "Could not open feedback: ${e.message}")
             }
         }
 
@@ -174,8 +153,13 @@ class FramilyWallpaperService : WallpaperService() {
             loadJob?.cancel()
             val w = width
             val h = height
+            val depth = prefs.depthEnabled
             loadJob = scope.launch {
-                val frame = withContext(Dispatchers.Default) { buildFrame(id, w, h) }
+                val frame = withContext(Dispatchers.Default) {
+                    WallpaperRenderer.buildFrame(ctx, id, w, h, depth) {
+                        segmenter ?: DepthSegmenter().also { segmenter = it }
+                    }
+                }
                 previous = current
                 current = frame
                 fadeStart = if (previous?.bg != null) SystemClock.uptimeMillis() else 0L
@@ -187,27 +171,6 @@ class FramilyWallpaperService : WallpaperService() {
             }
         }
 
-        private suspend fun buildFrame(id: Long, w: Int, h: Int): Frame {
-            val empty = Frame(id, null, null, Color.WHITE, null)
-            if (id < 0) return empty
-            val photo = PhotoDb.get(ctx).get(id) ?: return empty
-            val bg = ImageUtils.renderPhoto(ctx, photo, w, h) ?: return empty
-            val fg = if (prefs.depthEnabled) {
-                try {
-                    (segmenter ?: DepthSegmenter().also { segmenter = it }).foreground(bg)
-                } catch (e: Exception) {
-                    Log.w(TAG, "Segmentation failed: ${e.message}")
-                    null
-                }
-            } else null
-            val colors = try {
-                WallpaperColors.fromBitmap(bg)
-            } catch (_: Exception) {
-                null
-            }
-            return Frame(id, bg, fg, ClockPainter.colorFor(bg), colors)
-        }
-
         private fun drawFrame() {
             handler.removeCallbacks(fadeRunnable)
             if (width == 0 || height == 0) return
@@ -217,19 +180,20 @@ class FramilyWallpaperService : WallpaperService() {
             } catch (e: Exception) {
                 null
             } ?: return
+            val style = ClockStyle.from(prefs)
             var stillFading = false
             try {
                 val cur = current
                 val prev = previous
                 val t = if (fadeStart > 0) ((SystemClock.uptimeMillis() - fadeStart) / 600f).coerceIn(0f, 1f) else 1f
                 if (prev != null && t < 1f) {
-                    drawComposite(canvas, prev)
+                    WallpaperRenderer.draw(canvas, prev, width, height, style, clock)
                     val save = canvas.saveLayerAlpha(null, (t * 255).toInt())
-                    drawComposite(canvas, cur)
+                    WallpaperRenderer.draw(canvas, cur, width, height, style, clock)
                     canvas.restoreToCount(save)
                     stillFading = true
                 } else {
-                    drawComposite(canvas, cur)
+                    WallpaperRenderer.draw(canvas, cur, width, height, style, clock)
                 }
             } finally {
                 holder.unlockCanvasAndPost(canvas)
@@ -241,28 +205,5 @@ class FramilyWallpaperService : WallpaperService() {
                 previous = null
             }
         }
-
-        private fun drawComposite(canvas: Canvas, frame: Frame?) {
-            val full = Rect(0, 0, width, height)
-            val bg = frame?.bg
-            if (bg == null) {
-                canvas.drawColor(0xFF1B1B1F.toInt())
-                if (prefs.clockEnabled) clock.draw(canvas, clock.layout(width, height, prefs.clockPosition), Color.WHITE)
-                return
-            }
-            canvas.drawBitmap(bg, null, full, bitmapPaint)
-            if (!prefs.clockEnabled) return
-            val layout = clock.layout(width, height, prefs.clockPosition)
-            clock.draw(canvas, layout, frame.clockColor)
-            val fg = frame.fg
-            // If people would hide most of the time, keep the clock on top instead.
-            if (fg != null && prefs.depthEnabled && fg.coverage(layout.rect, width, height) < 0.45f) {
-                canvas.drawBitmap(fg.bitmap, null, full, bitmapPaint)
-            }
-        }
-    }
-
-    companion object {
-        private const val TAG = "FramilyWallpaper"
     }
 }

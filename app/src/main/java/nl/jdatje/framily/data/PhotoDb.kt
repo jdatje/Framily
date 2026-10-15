@@ -31,13 +31,15 @@ data class Photo(
     val blocked: Boolean,
     val lastShown: Long,
     val dateTaken: Long,
+    /** Visual fingerprint; similar-looking photos have similar values. Null = not computed yet. */
+    val phash: Long?,
 ) {
     val uri: Uri get() = ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id)
 }
 
 /** Remembers the scan result of every photo, so each photo is only analysed once. */
 class PhotoDb private constructor(context: Context) :
-    SQLiteOpenHelper(context, "framily.db", null, 1) {
+    SQLiteOpenHelper(context, "framily.db", null, 2) {
 
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
@@ -61,14 +63,18 @@ class PhotoDb private constructor(context: Context) :
                 error INTEGER NOT NULL DEFAULT 0,
                 blocked INTEGER NOT NULL DEFAULT 0,
                 block_reason TEXT,
-                last_shown INTEGER NOT NULL DEFAULT 0
+                last_shown INTEGER NOT NULL DEFAULT 0,
+                phash INTEGER
             )
             """.trimIndent()
         )
         db.execSQL("CREATE INDEX idx_pool ON photos(portrait, face_count, blocked, score)")
     }
 
-    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {}
+    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        // Version 2 added fingerprints for spotting similar photos. Existing scan results are kept.
+        if (oldVersion < 2) db.execSQL("ALTER TABLE photos ADD COLUMN phash INTEGER")
+    }
 
     fun tx(block: () -> Unit) {
         val db = writableDatabase
@@ -107,6 +113,7 @@ class PhotoDb private constructor(context: Context) :
                 put("smile", a.smile)
                 put("eyes", a.eyes)
                 put("sharp", a.sharp)
+                if (a.phash != null) put("phash", a.phash) else putNull("phash")
             }
         }
         val db = writableDatabase
@@ -143,27 +150,32 @@ class PhotoDb private constructor(context: Context) :
         writableDatabase.execSQL("UPDATE photos SET date_modified = -1")
     }
 
-    private fun poolWhere(buckets: Set<String>): String {
-        val marks = buckets.joinToString(",") { "?" }
-        return "portrait=1 AND face_count>0 AND blocked=0 AND face_ratio>=? AND bucket_id IN ($marks)"
-    }
+    private fun marks(buckets: Set<String>) = buckets.joinToString(",") { "?" }
 
-    /** The best [limit] photos that meet the criteria, best first. */
-    fun pool(buckets: Set<String>, minRatio: Float, limit: Int): List<Photo> {
+    /** Every photo that meets the criteria (portrait, big enough face, not removed), best first. */
+    fun qualifying(buckets: Set<String>, minRatio: Float): List<Photo> {
         if (buckets.isEmpty()) return emptyList()
         val args = arrayOf(minRatio.toString()) + buckets.toTypedArray()
         return readableDatabase.rawQuery(
-            "SELECT * FROM photos WHERE ${poolWhere(buckets)} ORDER BY score DESC LIMIT $limit", args
+            "SELECT * FROM photos WHERE portrait=1 AND face_count>0 AND blocked=0 AND face_ratio>=? " +
+                "AND bucket_id IN (${marks(buckets)}) ORDER BY score DESC",
+            args,
         ).use { c -> buildList { while (c.moveToNext()) add(c.toPhoto()) } }
     }
 
-    /** How many photos meet the criteria in total. */
-    fun qualifyingCount(buckets: Set<String>, minRatio: Float): Int {
-        if (buckets.isEmpty()) return 0
-        val args = arrayOf(minRatio.toString()) + buckets.toTypedArray()
+    /** Photos with faces that were scanned before fingerprints existed. */
+    fun missingHash(buckets: Set<String>): List<Long> {
+        if (buckets.isEmpty()) return emptyList()
         return readableDatabase.rawQuery(
-            "SELECT COUNT(*) FROM photos WHERE ${poolWhere(buckets)}", args
-        ).use { c -> if (c.moveToFirst()) c.getInt(0) else 0 }
+            "SELECT id FROM photos WHERE portrait=1 AND face_count>0 AND phash IS NULL " +
+                "AND bucket_id IN (${marks(buckets)})",
+            buckets.toTypedArray(),
+        ).use { c -> buildList { while (c.moveToNext()) add(c.getLong(0)) } }
+    }
+
+    fun setHash(id: Long, hash: Long) {
+        val cv = ContentValues().apply { put("phash", hash) }
+        writableDatabase.update("photos", cv, "id=?", arrayOf(id.toString()))
     }
 
     fun get(id: Long): Photo? =
@@ -208,6 +220,7 @@ class PhotoDb private constructor(context: Context) :
         blocked = getInt(getColumnIndexOrThrow("blocked")) == 1,
         lastShown = getLong(getColumnIndexOrThrow("last_shown")),
         dateTaken = getLong(getColumnIndexOrThrow("date_taken")),
+        phash = getColumnIndexOrThrow("phash").let { if (isNull(it)) null else getLong(it) },
     )
 
     companion object {

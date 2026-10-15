@@ -23,8 +23,7 @@ object Rotator {
     suspend fun next(context: Context): Photo? = mutex.withLock {
         withContext(Dispatchers.IO) {
             val prefs = Prefs.get(context)
-            val db = PhotoDb.get(context)
-            val pool = db.pool(prefs.selectedBuckets, prefs.minFacePercent / 100f, prefs.poolSize)
+            val pool = PoolBuilder.build(context).photos
             if (pool.isEmpty()) return@withContext null
             val current = prefs.currentPhotoId
             val candidates = pool.filter { it.id != current }.ifEmpty { pool }

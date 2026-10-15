@@ -26,6 +26,11 @@ class Prefs private constructor(context: Context) {
         get() = sp.getInt(MIN_FACE, 10)
         set(v) = sp.edit { putInt(MIN_FACE, v) }
 
+    /** 0 = keep all, 1 = group very similar photos, 2 = also group somewhat similar ones. */
+    var dedupeLevel: Int
+        get() = sp.getInt(DEDUPE, 1)
+        set(v) = sp.edit { putInt(DEDUPE, v) }
+
     var clockEnabled: Boolean
         get() = sp.getBoolean(CLOCK, true)
         set(v) = sp.edit { putBoolean(CLOCK, v) }
@@ -34,6 +39,32 @@ class Prefs private constructor(context: Context) {
     var clockPosition: Float
         get() = sp.getFloat(CLOCK_POS, 0.18f)
         set(v) = sp.edit { putFloat(CLOCK_POS, v) }
+
+    var clockFont: String
+        get() = sp.getString(CLOCK_FONT, "bold") ?: "bold"
+        set(v) = sp.edit { putString(CLOCK_FONT, v) }
+
+    /** "stacked" (hours above minutes) or "line" (07:50). */
+    var clockLayout: String
+        get() = sp.getString(CLOCK_LAYOUT, "stacked") ?: "stacked"
+        set(v) = sp.edit { putString(CLOCK_LAYOUT, v) }
+
+    var clockSize: Float
+        get() = sp.getFloat(CLOCK_SIZE, 1f)
+        set(v) = sp.edit { putFloat(CLOCK_SIZE, v) }
+
+    /** "photo", "photo_dark", "white" or "black". */
+    var clockColor: String
+        get() = sp.getString(CLOCK_COLOR, "photo") ?: "photo"
+        set(v) = sp.edit { putString(CLOCK_COLOR, v) }
+
+    var clockOpacity: Float
+        get() = sp.getFloat(CLOCK_OPACITY, 0.92f)
+        set(v) = sp.edit { putFloat(CLOCK_OPACITY, v) }
+
+    var clockDate: Boolean
+        get() = sp.getBoolean(CLOCK_DATE, false)
+        set(v) = sp.edit { putBoolean(CLOCK_DATE, v) }
 
     /** Put people in front of the clock. */
     var depthEnabled: Boolean
@@ -76,8 +107,21 @@ class Prefs private constructor(context: Context) {
         const val INTERVAL = "interval_minutes"
         const val POOL = "pool_size"
         const val MIN_FACE = "min_face_percent"
+        const val DEDUPE = "dedupe_level"
         const val CLOCK = "clock_enabled"
         const val CLOCK_POS = "clock_position"
+        const val CLOCK_FONT = "clock_font"
+        const val CLOCK_LAYOUT = "clock_layout"
+        const val CLOCK_SIZE = "clock_size"
+        const val CLOCK_COLOR = "clock_color"
+        const val CLOCK_OPACITY = "clock_opacity"
+        const val CLOCK_DATE = "clock_date"
+
+        /** Settings that only change how the clock is drawn (no new photo needed). */
+        val CLOCK_KEYS = setOf(
+            "clock_enabled", "clock_position", CLOCK_FONT, CLOCK_LAYOUT,
+            CLOCK_SIZE, CLOCK_COLOR, CLOCK_OPACITY, CLOCK_DATE,
+        )
         const val DEPTH = "depth_enabled"
         const val LOCK = "lock_screen"
         const val DOUBLE_TAP = "double_tap"
