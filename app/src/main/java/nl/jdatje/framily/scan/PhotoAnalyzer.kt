@@ -106,7 +106,6 @@ class PhotoAnalyzer(private val context: Context, private val embedder: FaceEmbe
             val eyes = main.map {
                 min(it.leftEyeOpenProbability ?: 0.5f, it.rightEyeOpenProbability ?: 0.5f)
             }.average().toFloat()
-            val frontal = main.map { 1f - min(abs(it.headEulerAngleY), 45f) / 45f }.average().toFloat()
             val sharp = main.map { sharpness(bmp, it.boundingBox) }.average().toFloat()
 
             val rects = significant.map { f ->
@@ -118,17 +117,8 @@ class PhotoAnalyzer(private val context: Context, private val embedder: FaceEmbe
                     (b.bottom.toFloat() / h).coerceIn(0f, 1f),
                 )
             }
-            val focus = ImageUtils.focusPoint(rects)
-
-            val size = ((maxRatio - 0.05f) / 0.25f).coerceIn(0f, 1f)
-            val horizontal = 1f - min(1f, abs(focus.x - 0.5f) * 2f)
-            val vertical = 1f - (max(0f, abs(focus.y - 0.4f) - 0.15f) / 0.45f).coerceIn(0f, 1f)
-            val position = 0.6f * horizontal + 0.4f * vertical
-
-            val score = 100f * (
-                0.25f * size + 0.25f * sharp + 0.15f * eyes +
-                    0.15f * smile + 0.10f * frontal + 0.10f * position
-                )
+            // Family members aren't known yet here; the score is recomputed once faces are matched.
+            val score = Scorer.parts(rects, maxRatio, smile, eyes, sharp, familyFaces = 0, hasFamily = false).total
 
             val infos = significant.mapIndexed { i, f ->
                 val emb = embedder?.embed(

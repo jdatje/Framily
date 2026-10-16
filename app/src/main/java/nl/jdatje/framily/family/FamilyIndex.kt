@@ -13,6 +13,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import nl.jdatje.framily.data.PhotoDb
 import nl.jdatje.framily.data.Prefs
+import nl.jdatje.framily.scan.Scorer
 import kotlin.math.sqrt
 
 /**
@@ -297,6 +298,8 @@ object FamilyIndex {
         } finally {
             db.endTransaction()
         }
+        // Family members count in the score, so scores change with every match.
+        Scorer.recomputeAll(context)
     }
 
     private fun normalized(v: FloatArray): FloatArray {

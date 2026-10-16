@@ -27,6 +27,7 @@ import android.Manifest
 import android.content.pm.PackageManager
 import androidx.core.content.ContextCompat
 import nl.jdatje.framily.CrashLog
+import nl.jdatje.framily.data.SettingsBackup
 import nl.jdatje.framily.wallpaper.LookStyle
 import nl.jdatje.framily.weather.WeatherApps
 import nl.jdatje.framily.Permissions
@@ -70,6 +71,8 @@ data class UiState(
     val scanWaiting: Boolean = false,
     /** Paused because the phone is warm. */
     val scanPaused: Boolean = false,
+    /** Why a waiting scan isn't running, in plain words. */
+    val scanWaitReason: String? = null,
     val scanSpeed: Int = 0,
     val scanOnlyCharging: Boolean = true,
     val scanDone: Int = 0,
@@ -153,9 +156,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 .getWorkInfosFlow(WorkQuery.fromUniqueWorkNames(Scheduler.SCAN_NOW, Scheduler.SCAN_PERIODIC))
                 .collect { infos ->
                     val running = infos.firstOrNull { it.state == WorkInfo.State.RUNNING }
-                    val waiting = running == null && infos.any {
+                    val waitingInfo = if (running == null) infos.firstOrNull {
                         it.state == WorkInfo.State.ENQUEUED && Scheduler.SCAN_NOW in it.tags
-                    }
+                    } else null
+                    val waiting = waitingInfo != null
+                    val reason = waitingInfo?.let { waitReason(it) }
                     val wasRunning = _state.value.scanRunning
                     val done = running?.progress?.getInt(ScanWorker.DONE, 0) ?: 0
                     val total = running?.progress?.getInt(ScanWorker.TOTAL, 0) ?: 0
@@ -163,6 +168,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     _state.update {
                         it.copy(
                             scanRunning = running != null, scanWaiting = waiting, scanPaused = paused,
+                            scanWaitReason = reason,
                             scanDone = done, scanTotal = total,
                         )
                     }
@@ -173,6 +179,23 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     }
                     if (running == null) lastRefreshAt = 0
                 }
+        }
+    }
+
+    /** Plain-words reason why a queued scan isn't running right now. */
+    private fun waitReason(info: WorkInfo): String {
+        val battery = ctx.getSystemService(android.os.BatteryManager::class.java)
+        val level = battery.getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY)
+        val charging = battery.isCharging
+        val next = info.nextScheduleTimeMillis
+        val retryAt = if (info.runAttemptCount > 0 && next > System.currentTimeMillis() && next != Long.MAX_VALUE) {
+            DateFormat.getTimeFormat(ctx).format(Date(next))
+        } else null
+        return when {
+            prefs.scanOnlyCharging && !charging -> "Waiting: plug in your phone to continue."
+            !prefs.scanOnlyCharging && !charging && level <= 20 -> "Waiting: battery too low ($level%). Continues once it's charged a bit."
+            retryAt != null -> "Paused to save battery. Continues around $retryAt (or tap Stop scan, then Scan now)."
+            else -> "Starting soon…"
         }
     }
 
@@ -498,6 +521,36 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         if (!added) set.remove(id)
         prefs.selectedBuckets = set
         if (added) Scheduler.scanNow(ctx)
+    }
+
+    /** A short message after export/import, shown on the Extras page. */
+    private val _backupMessage = MutableStateFlow<String?>(null)
+    val backupMessage: StateFlow<String?> = _backupMessage.asStateFlow()
+
+    fun exportSettings(uri: android.net.Uri) = viewModelScope.launch(Dispatchers.IO) {
+        _backupMessage.value = try {
+            ctx.contentResolver.openOutputStream(uri, "wt")!!.use { it.write(SettingsBackup.export(prefs).toByteArray()) }
+            "Settings saved."
+        } catch (e: Exception) {
+            "Couldn't save: ${e.message}"
+        }
+    }
+
+    fun importSettings(uri: android.net.Uri) = viewModelScope.launch(Dispatchers.IO) {
+        _backupMessage.value = try {
+            val text = ctx.contentResolver.openInputStream(uri)!!.use { it.readBytes().decodeToString() }
+            val n = SettingsBackup.import(prefs, text)
+            // Apply what depends on settings.
+            Scheduler.scheduleRotation(ctx)
+            WeatherRepo.schedule(ctx)
+            if (prefs.weatherEnabled) WeatherRepo.refreshSoon(ctx)
+            Scheduler.scanNow(ctx, restart = true)
+            Rotator.refreshCaption(ctx)
+            refreshData()
+            "$n settings restored."
+        } catch (e: Exception) {
+            "Couldn't restore: ${e.message}"
+        }
     }
 
     fun clearCrash() {

@@ -22,7 +22,7 @@ Every push to `main` builds a new APK automatically (Actions tab → "Build APK"
 ## How photos are chosen
 
 1. **Filter:** portrait photos only, from the folders you tick, with at least one face bigger than the minimum face size.
-2. **Score (0–100):** face size 25 · sharpness 25 · eyes open 15 · smiling 15 · looking at the camera 10 · faces well placed 10.
+2. **Score (0–100):** face size 15 · sharpness 15 · eyes open 15 · smiling 15 · room above the head for the clock 15 · no cut-off faces 10 · centered 5 · family members in the photo 10. Scores are computed from values stored during the scan, so the formula can change without rescanning.
 3. **Similar photos:** every photo gets a visual fingerprint. Burst shots of the same moment (and copies, like the WhatsApp copy of your own photo) are grouped; only the best-scoring one is used. Strictness is a setting.
 4. **Rotation:** only the best N photos (setting). Every photo in the pool comes by before one repeats.
 
@@ -59,13 +59,18 @@ Optional: current weather ("⛅ 18°") and a strip with the next 4 hours (time, 
 
 Settings are grouped on pages (Photos & rotation, Clock, Weather, Readability, Extras, Scanning); look pages have a pinned live preview.
 
+## Settings backup
+
+Extras → Settings backup exports all settings to a JSON file and imports it again (scan results and family names stay on the phone).
+
 ## Battery
 
 The first scan of a large library takes a while, so it is careful with the battery:
 
 - **Only while charging** (default on): pauses when unplugged, continues when plugged in again.
 - **Speed:** Gentle (default) / Normal / Fast — how long it rests between photos.
-- Always: slower while the screen is on, slows down when the battery drops even though it's plugged in (slow charger), pauses when the phone gets warm, and stops below 30% when running on battery.
+- Always: slower while the screen is on, slows down when the battery drops even though it's plugged in (slow charger), pauses when the phone gets warm, and stops below 30% when running on battery. While charging there's no "battery low" wait.
+- The Scanning page says why a scan is waiting (charger, battery level, or when it retries).
 - A quick, cheap face check runs first; the precise (heavier) one only for photos that actually have faces.
 - Stop it anytime from the app or the scan notification. It always continues where it left off.
 

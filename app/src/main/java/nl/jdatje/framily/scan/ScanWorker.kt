@@ -154,7 +154,8 @@ class ScanWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
 
         embedder.close()
         // Update the face groups and who is family with what was found.
-        if (canRecognize && done > 0) FamilyIndex.rebuild(ctx)
+        if (canRecognize && done > 0) FamilyIndex.rebuild(ctx) // also recomputes scores
+        else if (done > 0) Scorer.recomputeAll(ctx)
 
         // Make sure something sensible is on screen.
         val pool = PoolBuilder.build(ctx).photos

@@ -12,12 +12,23 @@ class FramilyApp : Application() {
         Scheduler.schedulePeriodicScan(this)
         WeatherRepo.schedule(this)
 
-        // A scan queued by an older version doesn't have the battery limits yet: re-queue it once.
         val prefs = getSharedPreferences("framily_internal", MODE_PRIVATE)
-        if (prefs.getInt("scan_request_version", 0) < 2) {
+        // Scores from an older formula: recompute from the stored parts (no rescan needed).
+        if (prefs.getInt("score_version", 1) < nl.jdatje.framily.scan.Scorer.VERSION) {
+            Thread {
+                try {
+                    nl.jdatje.framily.scan.Scorer.recomputeAll(this)
+                    prefs.edit().putInt("score_version", nl.jdatje.framily.scan.Scorer.VERSION).apply()
+                } catch (e: Exception) {
+                    CrashLog.record(this, e, fatal = false)
+                }
+            }.start()
+        }
+        // A scan queued by an older version has old battery conditions: re-queue it once.
+        if (prefs.getInt("scan_request_version", 0) < 3) {
             Thread {
                 if (Scheduler.scanPending(this)) Scheduler.scanNow(this, restart = true)
-                prefs.edit().putInt("scan_request_version", 2).apply()
+                prefs.edit().putInt("scan_request_version", 3).apply()
             }.start()
         }
     }

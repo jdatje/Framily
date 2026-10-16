@@ -38,6 +38,12 @@ class MainActivity : ComponentActivity() {
                 val mediaLocationLauncher = rememberLauncherForActivityResult(
                     ActivityResultContracts.RequestPermission()
                 ) { vm.onMediaLocationAnswered() }
+                val exportLauncher = rememberLauncherForActivityResult(
+                    ActivityResultContracts.CreateDocument("application/json")
+                ) { uri -> uri?.let { vm.exportSettings(it) } }
+                val importLauncher = rememberLauncherForActivityResult(
+                    ActivityResultContracts.OpenDocument()
+                ) { uri -> uri?.let { vm.importSettings(it) } }
                 var screen by rememberSaveable { mutableStateOf("main") }
                 if (screen == "family") {
                     FamilyScreen(familyVm) {
@@ -63,6 +69,8 @@ class MainActivity : ComponentActivity() {
                             screen = "family"
                         },
                         arrange = { screen = "arrange" },
+                        exportSettings = { exportLauncher.launch("framily-settings.json") },
+                        importSettings = { importLauncher.launch(arrayOf("application/json", "text/plain", "application/octet-stream")) },
                     ),
                 )
             }

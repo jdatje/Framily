@@ -66,6 +66,8 @@ class MainActions(
     val requestMediaLocation: () -> Unit,
     val openFamily: () -> Unit,
     val arrange: () -> Unit,
+    val exportSettings: () -> Unit,
+    val importSettings: () -> Unit,
 )
 
 @Composable
@@ -79,7 +81,10 @@ fun MainScreen(vm: MainViewModel, actions: MainActions) {
         "clock" -> SettingsPage("Clock", s, actions.arrange, { page = "home" }) { clockPage(s, vm) }
         "weather" -> SettingsPage("Weather", s, actions.arrange, { page = "home" }) { weatherPage(s, vm, actions) }
         "look" -> SettingsPage("Readability", s, actions.arrange, { page = "home" }) { lookPage(s, vm) }
-        "extras" -> SettingsPage("Extras", s, actions.arrange, { page = "home" }) { extrasPage(s, vm, actions) }
+        "extras" -> {
+            val backupMessage by vm.backupMessage.collectAsStateWithLifecycle()
+            SettingsPage("Extras", s, actions.arrange, { page = "home" }) { extrasPage(s, vm, actions, backupMessage) }
+        }
         "scan" -> SettingsPage("Scanning", s, null, { page = "home" }) { scanPage(s, vm) }
         "pool" -> PoolPage(s, vm) { page = "home" }
         else -> HomePage(s, vm, actions) { page = it }
@@ -179,7 +184,7 @@ private fun extrasSummary(s: UiState): String =
 private fun scanSummary(s: UiState): String = when {
     s.scanRunning && s.scanTotal > 0 -> "Scanning: ${s.scanDone} of ${s.scanTotal}"
     s.scanRunning -> "Scanning…"
-    s.scanWaiting -> if (s.scanOnlyCharging) "Waiting for a charger" else "Paused, continues later"
+    s.scanWaiting -> s.scanWaitReason ?: "Waiting to continue"
     else -> "${s.scanned} photos scanned · " + (if (s.scanOnlyCharging) "only while charging" else "also on battery")
 }
 

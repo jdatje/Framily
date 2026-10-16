@@ -353,7 +353,7 @@ fun LazyListScope.lookPage(s: UiState, vm: MainViewModel) {
 
 // ------------------------------------------------------------------ Extras
 
-fun LazyListScope.extrasPage(s: UiState, vm: MainViewModel, actions: MainActions) {
+fun LazyListScope.extrasPage(s: UiState, vm: MainViewModel, actions: MainActions, backupMessage: String?) {
     item {
         SectionCard("Caption") {
             SwitchRow("Show caption", "When and where, e.g. \"June 2021 · Texel\"", s.look?.caption == true) {
@@ -375,6 +375,16 @@ fun LazyListScope.extrasPage(s: UiState, vm: MainViewModel, actions: MainActions
             SwitchRow("Double-tap home screen", "Shows the next photo", s.doubleTap) { vm.setDoubleTap(it) }
         }
     }
+    item {
+        SectionCard("Settings backup") {
+            Hint("Save all settings to a file (for example on Google Drive) and restore them later or on a new phone. Scan results and family names aren't included: on a new phone the scan runs again and you name your family once more.")
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = actions.exportSettings) { Text("Export") }
+                OutlinedButton(onClick = actions.importSettings) { Text("Import") }
+            }
+            backupMessage?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
+        }
+    }
 }
 
 // ------------------------------------------------------------------ Scanning
@@ -387,7 +397,7 @@ fun LazyListScope.scanPage(s: UiState, vm: MainViewModel) {
                     s.scanRunning && s.scanPaused -> "Paused: your phone is warm. It continues when it has cooled down."
                     s.scanRunning && s.scanTotal > 0 -> "Scanning photos: ${s.scanDone} of ${s.scanTotal}"
                     s.scanRunning -> "Preparing scan…"
-                    s.scanWaiting -> if (s.scanOnlyCharging) "Waiting: plug in your phone to continue." else "Paused to save battery. It continues later."
+                    s.scanWaiting -> s.scanWaitReason ?: "Waiting to continue."
                     else -> "Not scanning. ${s.scanned} photos scanned so far."
                 }
             )

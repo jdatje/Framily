@@ -53,7 +53,9 @@ object Scheduler {
             .setConstraints(
                 Constraints.Builder()
                     .setRequiresCharging(onlyCharging)
-                    .setRequiresBatteryNotLow(true)
+                    // While charging, "battery low" doesn't matter (the scan slows down by itself if the
+                    // charger can't keep up). On battery it does.
+                    .setRequiresBatteryNotLow(!onlyCharging)
                     .build()
             )
             .setBackoffCriteria(BackoffPolicy.LINEAR, 15, TimeUnit.MINUTES)
