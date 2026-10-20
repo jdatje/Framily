@@ -33,6 +33,8 @@ Every push to `main` builds a new APK automatically (Actions tab → "Build APK"
 3. Every face is compared with the faces you named. A photo counts when a family member is in it and *their* face meets the minimum face size.
 4. "Not family" (notification, app, or a group) is remembered as a counter-example, so similar-looking people are skipped too. In a person's page you can tap faces that aren't them.
 
+Per family member you can turn off **Also on their own**: photos where they are the only family member are then skipped (e.g. no photos of just yourself, but yes to you with the kids).
+
 The recognition strictness is adjustable (loose ↔ strict). Photos scanned by an earlier version get their faces analysed again by the next scan.
 
 Model: MobileFaceNet (`mobilefacenet.tflite`, BSD-3-Clause, see `assets/mobilefacenet-LICENSE.txt`), run through Google Play services' TensorFlow Lite; face detection also comes from Play services, which keeps the app small.

@@ -198,7 +198,11 @@ private fun PersonRow(p: FamilyIndex.Person, onClick: () -> Unit) {
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Text(p.name, style = MaterialTheme.typography.bodyLarge)
-            Text("Recognized in ${p.photos} photos", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                "Recognized in ${p.photos} photos" + if (p.family && !p.alone) " · only together with others" else "",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
         Text("›", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
@@ -286,6 +290,20 @@ private fun PersonDialog(person: FamilyIndex.Person, vm: FamilyViewModel, onDism
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("Family", Modifier.weight(1f))
                     Switch(checked = person.family, onCheckedChange = { vm.setPersonFamily(person.id, it); onDismiss() })
+                }
+                if (person.family) {
+                    var alone by remember(person.id) { mutableStateOf(person.alone) }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Also on their own")
+                            Text(
+                                "Off: only photos where another family member is in it too",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Switch(checked = alone, onCheckedChange = { alone = it; vm.setPersonAlone(person.id, it) })
+                    }
                 }
                 Text("Recognized as ${person.name}. Tap a face that isn't them to remove it.", style = MaterialTheme.typography.bodySmall)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {

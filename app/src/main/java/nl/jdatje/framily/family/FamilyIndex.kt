@@ -41,7 +41,16 @@ object FamilyIndex {
         val uri: Uri get() = ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, photoId)
     }
 
-    class Person(val id: Long, val name: String, val family: Boolean, val faces: Int, val photos: Int, val sample: FaceRef?)
+    class Person(
+        val id: Long,
+        val name: String,
+        val family: Boolean,
+        val faces: Int,
+        val photos: Int,
+        val sample: FaceRef?,
+        /** False: photos with only this family member are skipped (they need company). */
+        val alone: Boolean = true,
+    )
 
     class Group(val cluster: Long, val size: Int, val samples: List<FaceRef>, val suggestion: String?)
 
@@ -53,18 +62,32 @@ object FamilyIndex {
         val db = db(context)
         val list = db.rawQuery(
             """
-            SELECT p.id, p.name, p.family,
-                   (SELECT COUNT(*) FROM faces f WHERE f.match_id = p.id),
-                   (SELECT COUNT(DISTINCT f.photo_id) FROM faces f WHERE f.match_id = p.id)
+            SELECT p.id, p.name, p.family, p.alone,
+                   (SELECT COUNT(*) FROM faces f WHERE f.match_id = p.id) AS nf,
+                   (SELECT COUNT(DISTINCT f.photo_id) FROM faces f WHERE f.match_id = p.id) AS np
             FROM people p WHERE p.name != ? ORDER BY p.family DESC, p.name COLLATE NOCASE
             """.trimIndent(),
             arrayOf(NOT_FAMILY_NAME),
         ).use { c ->
             buildList {
-                while (c.moveToNext()) add(Triple(c.getLong(0), c.getString(1), c.getInt(2) == 1) to (c.getInt(3) to c.getInt(4)))
+                while (c.moveToNext()) {
+                    add(
+                        Person(
+                            id = c.getLong(0),
+                            name = c.getString(1),
+                            family = c.getInt(2) == 1,
+                            alone = c.getInt(3) == 1,
+                            faces = c.getInt(4),
+                            photos = c.getInt(5),
+                            sample = null,
+                        )
+                    )
+                }
             }
         }
-        return list.map { (p, counts) -> Person(p.first, p.second, p.third, counts.first, counts.second, samples(db, "person_id=?", p.first, 1).firstOrNull()) }
+        return list.map { p ->
+            Person(p.id, p.name, p.family, p.faces, p.photos, samples(db, "person_id=?", p.id, 1).firstOrNull(), p.alone)
+        }
     }
 
     fun familyCount(context: Context): Int =
@@ -85,6 +108,10 @@ object FamilyIndex {
 
     fun renamePerson(context: Context, id: Long, name: String) {
         db(context).update("people", ContentValues().apply { put("name", name.trim()) }, "id=?", arrayOf(id.toString()))
+    }
+
+    fun setAlone(context: Context, id: Long, alone: Boolean) {
+        db(context).update("people", ContentValues().apply { put("alone", if (alone) 1 else 0) }, "id=?", arrayOf(id.toString()))
     }
 
     fun setFamily(context: Context, id: Long, family: Boolean) {
@@ -242,8 +269,13 @@ object FamilyIndex {
     private fun match(context: Context) {
         val db = db(context)
         val threshold = Prefs.get(context).familyThreshold
-        val family = db.rawQuery("SELECT id, family FROM people", null).use { c ->
-            buildMap { while (c.moveToNext()) put(c.getLong(0), c.getInt(1) == 1) }
+        val family = HashMap<Long, Boolean>()
+        val mayBeAlone = HashMap<Long, Boolean>()
+        db.rawQuery("SELECT id, family, alone FROM people", null).use { c ->
+            while (c.moveToNext()) {
+                family[c.getLong(0)] = c.getInt(1) == 1
+                mayBeAlone[c.getLong(0)] = c.getInt(2) == 1
+            }
         }
 
         // Reference faces per person: the clearest ones they were named on.
@@ -258,6 +290,7 @@ object FamilyIndex {
         val faces = loadFaces(db, "")
         val matchOf = HashMap<Long, Long?>(faces.size)
         val familyRatio = HashMap<Long, Float>()
+        val familyIn = HashMap<Long, MutableSet<Long>>() // photo -> family members in it
         for (f in faces) {
             val match: Long? = if (f.person != null) f.person else {
                 var bestPerson: Long? = null
@@ -278,7 +311,12 @@ object FamilyIndex {
             matchOf[f.id] = match
             if (match != null && family[match] == true) {
                 familyRatio[f.photoId] = maxOf(familyRatio[f.photoId] ?: 0f, f.ratio)
+                familyIn.getOrPut(f.photoId) { HashSet() } += match
             }
+        }
+        // Photos with only one family member who shouldn't appear on their own don't count as family photos.
+        for ((photoId, members) in familyIn) {
+            if (members.size == 1 && mayBeAlone[members.first()] == false) familyRatio.remove(photoId)
         }
 
         db.beginTransaction()

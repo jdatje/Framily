@@ -43,7 +43,7 @@ data class Photo(
 
 /** Remembers the scan result of every photo, so each photo is only analysed once. */
 class PhotoDb private constructor(context: Context) :
-    SQLiteOpenHelper(context, "framily.db", null, 3) {
+    SQLiteOpenHelper(context, "framily.db", null, 4) {
 
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
@@ -97,7 +97,8 @@ class PhotoDb private constructor(context: Context) :
         db.execSQL("CREATE INDEX idx_faces_photo ON faces(photo_id)")
         db.execSQL("CREATE INDEX idx_faces_cluster ON faces(cluster)")
         db.execSQL(
-            "CREATE TABLE people(id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, family INTEGER NOT NULL DEFAULT 1)"
+            "CREATE TABLE people(id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, family INTEGER NOT NULL DEFAULT 1, " +
+                "alone INTEGER NOT NULL DEFAULT 1)"
         )
     }
 
@@ -109,6 +110,10 @@ class PhotoDb private constructor(context: Context) :
             db.execSQL("ALTER TABLE photos ADD COLUMN embedded INTEGER NOT NULL DEFAULT 0")
             db.execSQL("ALTER TABLE photos ADD COLUMN family_ratio REAL NOT NULL DEFAULT 0")
             createFamilyTables(db)
+        }
+        // Version 4: per person "also on their own" (off = only photos together with other family).
+        else if (oldVersion < 4) {
+            db.execSQL("ALTER TABLE people ADD COLUMN alone INTEGER NOT NULL DEFAULT 1")
         }
     }
 

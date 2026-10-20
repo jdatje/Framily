@@ -83,6 +83,8 @@ class FamilyViewModel(app: Application) : AndroidViewModel(app) {
 
     fun renamePerson(id: Long, name: String) = change { FamilyIndex.renamePerson(ctx, id, name) }
 
+    fun setPersonAlone(id: Long, alone: Boolean) = change { FamilyIndex.setAlone(ctx, id, alone) }
+
     fun setPersonFamily(id: Long, family: Boolean) = change { FamilyIndex.setFamily(ctx, id, family) }
 
     fun deletePerson(id: Long) = change { FamilyIndex.deletePerson(ctx, id) }
