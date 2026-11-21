@@ -21,6 +21,16 @@ import kotlin.math.pow
 object Scorer {
     const val VERSION = 2
 
+    /** 👍 and 👎 on top of the score. */
+    const val LIKE_BONUS = 15f
+    const val DISLIKE_PENALTY = -30f
+
+    fun ratingBonus(rating: Int): Float = when {
+        rating > 0 -> LIKE_BONUS
+        rating < 0 -> DISLIKE_PENALTY
+        else -> 0f
+    }
+
     class Parts(
         val size: Float,
         val sharp: Float,
@@ -118,7 +128,7 @@ object Scorer {
 
         val rows = ArrayList<Pair<Long, Float>>()
         db.rawQuery(
-            "SELECT id, faces, face_ratio, smile, eyes, sharp FROM photos WHERE portrait=1 AND face_count>0",
+            "SELECT id, faces, face_ratio, smile, eyes, sharp, rating FROM photos WHERE portrait=1 AND face_count>0",
             null,
         ).use { c ->
             while (c.moveToNext()) {
@@ -132,7 +142,7 @@ object Scorer {
                     familyFaces = familyCounts[id] ?: 0,
                     hasFamily = hasFamily,
                 )
-                rows += id to p.total
+                rows += id to (p.total + ratingBonus(c.getInt(6)))
             }
         }
         db.beginTransaction()

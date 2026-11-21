@@ -20,6 +20,12 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.FilterChip
+import nl.jdatje.framily.data.Photo
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -188,35 +194,115 @@ private fun scanSummary(s: UiState): String = when {
     else -> "${s.scanned} photos scanned · " + (if (s.scanOnlyCharging) "only while charging" else "also on battery")
 }
 
-/** The photo on screen (as the real wallpaper looks), with the most-used actions. */
+/**
+ * The photo on screen (as the real wallpaper looks), with the most-used actions.
+ * When the lock screen has its own photo, swipe left/right between the two.
+ */
 @Composable
 private fun NowCard(s: UiState, vm: MainViewModel, onArrange: () -> Unit) {
+    val lock = s.lockPhoto
+    val pages = if (lock != null) 2 else 1
+    val pager = rememberPagerState { pages }
     SectionCard(null) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            s.preview?.let { WallpaperPreview(it, 110.dp, Modifier.clickable(onClick = onArrange)) }
-            Spacer(Modifier.width(14.dp))
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.weight(1f)) {
-                Text("${s.qualifying} photos qualify", style = MaterialTheme.typography.titleMedium)
-                val grouped = s.qualifying - s.unique
-                Hint((if (grouped > 0) "$grouped similar grouped · " else "") + "using the best ${minOf(s.unique, s.poolSize)}")
-                s.current?.let { Hint("Now: score ${it.score.roundToInt()} · ${it.bucketName}") }
-                if (s.scanRunning) {
-                    if (s.scanTotal > 0) {
-                        LinearProgressIndicator(progress = { s.scanDone / s.scanTotal.toFloat() }, modifier = Modifier.fillMaxWidth())
-                    } else {
-                        LinearProgressIndicator(Modifier.fillMaxWidth())
-                    }
-                    Hint(if (s.scanPaused) "Scan paused: phone is warm" else "Scanning ${s.scanDone} of ${s.scanTotal}")
-                }
-                FilledTonalButton(onClick = { vm.next() }, enabled = s.pool.isNotEmpty()) { Text("Next photo") }
-                s.current?.let { cur ->
-                    Row {
-                        TextButton(onClick = { vm.feedback(cur, Feedback.NOT_FAMILY) }) { Text("Not family") }
-                        TextButton(onClick = { vm.feedback(cur, Feedback.NEVER) }) { Text("Never show") }
-                    }
+        HorizontalPager(state = pager, verticalAlignment = Alignment.Top) { page ->
+            if (page == 0) HomePageContent(s, vm, onArrange) else if (lock != null) LockPageContent(lock, vm)
+        }
+        if (pages > 1) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+                repeat(pages) { i ->
+                    Surface(
+                        shape = CircleShape,
+                        color = if (pager.currentPage == i) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
+                        modifier = Modifier
+                            .padding(horizontal = 4.dp)
+                            .size(8.dp),
+                    ) {}
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun HomePageContent(s: UiState, vm: MainViewModel, onArrange: () -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        s.preview?.let { WallpaperPreview(it, 110.dp, Modifier.clickable(onClick = onArrange)) }
+        Spacer(Modifier.width(14.dp))
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.weight(1f)) {
+            if (s.lockPhoto != null) Text("Home screen  ›", style = MaterialTheme.typography.labelLarge)
+            Text("${s.qualifying} photos qualify", style = MaterialTheme.typography.titleMedium)
+            val grouped = s.qualifying - s.unique
+            val extras = s.pool.count { it.onThisDay }
+            Hint(
+                (if (grouped > 0) "$grouped similar grouped · " else "") + "using the best ${minOf(s.unique, s.poolSize)}" +
+                    (if (extras > 0) " + $extras on this day" else "")
+            )
+            s.current?.let { Hint("Now: " + photoLine(it)) }
+            if (s.scanRunning) {
+                if (s.scanTotal > 0) {
+                    LinearProgressIndicator(progress = { s.scanDone / s.scanTotal.toFloat() }, modifier = Modifier.fillMaxWidth())
+                } else {
+                    LinearProgressIndicator(Modifier.fillMaxWidth())
+                }
+                Hint(if (s.scanPaused) "Scan paused: phone is warm" else "Scanning ${s.scanDone} of ${s.scanTotal}")
+            }
+            FilledTonalButton(onClick = { vm.next() }, enabled = s.pool.isNotEmpty()) { Text("Next photo") }
+            s.current?.let { PhotoActions(it, vm) }
+        }
+    }
+}
+
+@Composable
+private fun LockPageContent(photo: Photo, vm: MainViewModel) {
+    val context = LocalContext.current
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        // The lock screen shows the photo itself; the phone draws its own clock on top.
+        AsyncImage(
+            model = ImageRequest.Builder(context).data(photo.uri).size(500).crossfade(true).build(),
+            contentDescription = "Lock screen photo",
+            contentScale = ContentScale.Crop,
+            modifier = Modifier
+                .width(110.dp)
+                .aspectRatio(9f / 19.5f)
+                .clip(RoundedCornerShape(14.dp))
+                .border(BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), RoundedCornerShape(14.dp)),
+        )
+        Spacer(Modifier.width(14.dp))
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.weight(1f)) {
+            Text("‹  Lock screen", style = MaterialTheme.typography.labelLarge)
+            Text("On your lock screen", style = MaterialTheme.typography.titleMedium)
+            Hint(photoLine(photo))
+            FilledTonalButton(onClick = { vm.nextLock() }) { Text("Next photo") }
+            PhotoActions(photo, vm)
+        }
+    }
+}
+
+private fun photoLine(p: Photo): String =
+    (when {
+        p.rating > 0 -> "👍 "
+        p.rating < 0 -> "👎 "
+        else -> ""
+    }) + "score ${p.score.roundToInt()} · ${p.bucketName}"
+
+/** 👍 · 👎 · Not family · Never show. Tapping an active 👍/👎 again undoes it. */
+@Composable
+private fun PhotoActions(p: Photo, vm: MainViewModel) {
+    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        FilterChip(
+            selected = p.rating > 0,
+            onClick = { vm.feedback(p, if (p.rating > 0) Feedback.UNRATE else Feedback.LIKE) },
+            label = { Text("👍 Like") },
+        )
+        FilterChip(
+            selected = p.rating < 0,
+            onClick = { vm.feedback(p, if (p.rating < 0) Feedback.UNRATE else Feedback.DISLIKE) },
+            label = { Text("👎") },
+        )
+    }
+    Row {
+        TextButton(onClick = { vm.feedback(p, Feedback.NOT_FAMILY) }) { Text("Not family") }
+        TextButton(onClick = { vm.feedback(p, Feedback.NEVER) }) { Text("Never show") }
     }
 }
 
@@ -340,7 +426,7 @@ private fun SettingsPage(
 private fun PoolPage(s: UiState, vm: MainViewModel, onBack: () -> Unit) {
     var selected by remember { mutableStateOf<PoolBuilder.Entry?>(null) }
     SettingsPage("In the rotation (${s.pool.size})", s, null, onBack) {
-        item { Hint("Best first. \"+2\" means 2 similar photos were left out for this one. Tap a photo for options.") }
+        item { Hint("Best first. \"+2\": 2 similar photos left out for this one. 📅 = on this day, 👍/👎 = your rating. Tap a photo for options.") }
         items(s.pool.chunked(3)) { row ->
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 row.forEach { entry ->
@@ -355,8 +441,7 @@ private fun PoolPage(s: UiState, vm: MainViewModel, onBack: () -> Unit) {
             entry = entry,
             onDismiss = { selected = null },
             onShow = { vm.showNow(entry.photo); selected = null },
-            onNotFamily = { vm.feedback(entry.photo, Feedback.NOT_FAMILY); selected = null },
-            onRemove = { vm.feedback(entry.photo, Feedback.NEVER); selected = null },
+            onRate = { action -> vm.feedback(entry.photo, action); selected = null },
         )
     }
 }
@@ -383,6 +468,12 @@ private fun PoolTile(entry: PoolBuilder.Entry, isCurrent: Boolean, modifier: Mod
         )
         Badge("${photo.score.roundToInt()}", Modifier.align(Alignment.BottomStart), RoundedCornerShape(topEnd = 8.dp))
         if (entry.similar > 0) Badge("+${entry.similar}", Modifier.align(Alignment.TopEnd), RoundedCornerShape(bottomStart = 8.dp))
+        val marks = listOfNotNull(
+            "📅".takeIf { entry.onThisDay },
+            "👍".takeIf { photo.rating > 0 },
+            "👎".takeIf { photo.rating < 0 },
+        ).joinToString("")
+        if (marks.isNotEmpty()) Badge(marks, Modifier.align(Alignment.TopStart), RoundedCornerShape(bottomEnd = 8.dp))
     }
 }
 
@@ -398,8 +489,7 @@ private fun PhotoDialog(
     entry: PoolBuilder.Entry,
     onDismiss: () -> Unit,
     onShow: () -> Unit,
-    onNotFamily: () -> Unit,
-    onRemove: () -> Unit,
+    onRate: (String) -> Unit,
 ) {
     val photo = entry.photo
     AlertDialog(
@@ -419,18 +509,30 @@ private fun PhotoDialog(
                 Text(
                     "${photo.faceCount} face(s) · largest ${(photo.faceRatio * 100).roundToInt()}% of height\n" +
                         "Sharp ${pct(photo.sharp)} · Eyes open ${pct(photo.eyes)} · Smiling ${pct(photo.smile)}\n" +
-                        photo.bucketName + (if (entry.similar > 0) " · best of ${entry.similar + 1} similar photos" else ""),
+                        photo.bucketName + (if (entry.similar > 0) " · best of ${entry.similar + 1} similar photos" else "") +
+                        (if (entry.onThisDay) "\n📅 In the rotation as an \"on this day\" photo" else ""),
                     style = MaterialTheme.typography.bodySmall,
                 )
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    FilterChip(
+                        selected = photo.rating > 0,
+                        onClick = { onRate(if (photo.rating > 0) Feedback.UNRATE else Feedback.LIKE) },
+                        label = { Text("👍 Like") },
+                    )
+                    FilterChip(
+                        selected = photo.rating < 0,
+                        onClick = { onRate(if (photo.rating < 0) Feedback.UNRATE else Feedback.DISLIKE) },
+                        label = { Text("👎 Dislike") },
+                    )
+                }
+                Row {
+                    TextButton(onClick = { onRate(Feedback.NOT_FAMILY) }) { Text("Not family") }
+                    TextButton(onClick = { onRate(Feedback.NEVER) }) { Text("Never show") }
+                }
             }
         },
         confirmButton = { TextButton(onClick = onShow) { Text("Show now") } },
-        dismissButton = {
-            Row {
-                TextButton(onClick = onNotFamily) { Text("Not family") }
-                TextButton(onClick = onRemove) { Text("Remove") }
-            }
-        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Close") } },
     )
 }
 

@@ -10,7 +10,7 @@ import org.json.JSONObject
 object SettingsBackup {
     /** Things that belong to this moment or this phone's scan, not to your preferences. */
     private val SKIP = setOf(
-        Prefs.CURRENT, Prefs.CAPTION_TEXT, Prefs.WEATHER_DATA, Prefs.SCORER,
+        Prefs.CURRENT, Prefs.LOCK_PHOTO, Prefs.CAPTION_TEXT, Prefs.WEATHER_DATA, Prefs.SCORER,
     )
 
     fun export(prefs: Prefs): String {

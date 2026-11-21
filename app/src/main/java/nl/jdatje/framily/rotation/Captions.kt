@@ -10,6 +10,7 @@ import androidx.exifinterface.media.ExifInterface
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
 import nl.jdatje.framily.data.Photo
+import nl.jdatje.framily.data.Prefs
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -22,10 +23,16 @@ object Captions {
     suspend fun forPhoto(context: Context, photo: Photo): String? {
         val parts = ArrayList<String>()
         if (photo.dateTaken > 0) {
-            val years = OnThisDay.yearsAgoToday(photo.dateTaken)
+            val m = OnThisDay.match(photo.dateTaken, window = Prefs.get(context).onThisDayDays)
             parts += when {
-                years == 1 -> "1 year ago today"
-                years != null && years > 1 -> "$years years ago today"
+                m != null -> {
+                    val ago = if (m.years == 1) "1 year ago" else "${m.years} years ago"
+                    when {
+                        m.days <= 1 -> "$ago today"
+                        m.days <= 7 -> "$ago this week"
+                        else -> "Around this time, $ago"
+                    }
+                }
                 else -> SimpleDateFormat("MMMM yyyy", Locale.getDefault()).format(Date(photo.dateTaken))
                     .replaceFirstChar { it.titlecase(Locale.getDefault()) }
             }
@@ -64,15 +71,24 @@ object Captions {
 
 /** "On this day": photos taken around today's date in earlier years. */
 object OnThisDay {
-    /** How many years ago today (±2 days) this was taken, or null if it wasn't around this date. */
-    fun yearsAgoToday(taken: Long, now: Long = System.currentTimeMillis()): Int? {
+    /** [years] ago, [days] before or after today's date. */
+    class Match(val years: Int, val days: Int)
+
+    /** When this photo was taken within ±[window] days of today's date in an earlier year, or null. */
+    fun match(taken: Long, now: Long = System.currentTimeMillis(), window: Int = 7): Match? {
         val t = Calendar.getInstance().apply { timeInMillis = taken }
         val n = Calendar.getInstance().apply { timeInMillis = now }
-        val years = n.get(Calendar.YEAR) - t.get(Calendar.YEAR)
-        if (years < 1) return null
-        // Same date in this year, to compare day-of-year safely (leap years).
-        t.set(Calendar.YEAR, n.get(Calendar.YEAR))
-        val days = kotlin.math.abs(t.get(Calendar.DAY_OF_YEAR) - n.get(Calendar.DAY_OF_YEAR))
-        return if (days <= 2 || days >= 363) years else null
+        var best: Match? = null
+        // Compare with the same date one year before and after too, so late December / early January work.
+        for (shift in -1..1) {
+            val candidate = (t.clone() as Calendar).apply { set(Calendar.YEAR, n.get(Calendar.YEAR) + shift) }
+            val days = kotlin.math.abs(((candidate.timeInMillis - now) / 86_400_000.0)).let { kotlin.math.round(it).toInt() }
+            val years = n.get(Calendar.YEAR) + shift - t.get(Calendar.YEAR)
+            if (years >= 1 && days <= window && (best == null || days < best.days)) best = Match(years, days)
+        }
+        return best
     }
+
+    /** Kept for older callers: years ago, within ±2 days. */
+    fun yearsAgoToday(taken: Long, now: Long = System.currentTimeMillis()): Int? = match(taken, now, 2)?.years
 }

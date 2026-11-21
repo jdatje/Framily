@@ -12,6 +12,7 @@ import android.provider.MediaStore
 import nl.jdatje.framily.family.FaceEmbedder
 import nl.jdatje.framily.scan.Analysis
 import nl.jdatje.framily.scan.FaceInfo
+import nl.jdatje.framily.scan.Scorer
 import java.util.Locale
 
 /** A scanned photo that is (or could be) in the rotation. */
@@ -37,13 +38,15 @@ data class Photo(
     val phash: Long?,
     /** Height of the largest recognized family face divided by the photo height (0 = none). */
     val familyRatio: Float = 0f,
+    /** 1 = liked, -1 = disliked, 0 = not rated. Already counted in [score]. */
+    val rating: Int = 0,
 ) {
     val uri: Uri get() = ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id)
 }
 
 /** Remembers the scan result of every photo, so each photo is only analysed once. */
 class PhotoDb private constructor(context: Context) :
-    SQLiteOpenHelper(context, "framily.db", null, 4) {
+    SQLiteOpenHelper(context, "framily.db", null, 5) {
 
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
@@ -70,7 +73,8 @@ class PhotoDb private constructor(context: Context) :
                 last_shown INTEGER NOT NULL DEFAULT 0,
                 phash INTEGER,
                 embedded INTEGER NOT NULL DEFAULT 0,
-                family_ratio REAL NOT NULL DEFAULT 0
+                family_ratio REAL NOT NULL DEFAULT 0,
+                rating INTEGER NOT NULL DEFAULT 0
             )
             """.trimIndent()
         )
@@ -115,6 +119,8 @@ class PhotoDb private constructor(context: Context) :
         else if (oldVersion < 4) {
             db.execSQL("ALTER TABLE people ADD COLUMN alone INTEGER NOT NULL DEFAULT 1")
         }
+        // Version 5: your rating per photo (1 = 👍, -1 = 👎, 0 = none).
+        if (oldVersion < 5) db.execSQL("ALTER TABLE photos ADD COLUMN rating INTEGER NOT NULL DEFAULT 0")
     }
 
     fun tx(block: () -> Unit) {
@@ -269,6 +275,17 @@ class PhotoDb private constructor(context: Context) :
         writableDatabase.update("photos", cv, "id=?", arrayOf(id.toString()))
     }
 
+    /** Set your rating and move the score along with it right away. */
+    fun setRating(id: Long, rating: Int) {
+        val old = get(id) ?: return
+        if (old.rating == rating) return
+        val cv = ContentValues().apply {
+            put("rating", rating)
+            put("score", old.score - Scorer.ratingBonus(old.rating) + Scorer.ratingBonus(rating))
+        }
+        writableDatabase.update("photos", cv, "id=?", arrayOf(id.toString()))
+    }
+
     fun unblockAll() {
         writableDatabase.execSQL("UPDATE photos SET blocked=0, block_reason=NULL")
     }
@@ -303,6 +320,7 @@ class PhotoDb private constructor(context: Context) :
         dateTaken = getLong(getColumnIndexOrThrow("date_taken")),
         phash = getColumnIndexOrThrow("phash").let { if (isNull(it)) null else getLong(it) },
         familyRatio = getFloat(getColumnIndexOrThrow("family_ratio")),
+        rating = getInt(getColumnIndexOrThrow("rating")),
     )
 
     companion object {

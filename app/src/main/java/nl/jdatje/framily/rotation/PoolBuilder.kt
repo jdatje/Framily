@@ -14,8 +14,11 @@ import kotlin.math.abs
  */
 object PoolBuilder {
 
-    /** A photo in the rotation, plus how many similar (lower scoring) photos it stands in for. */
-    class Entry(val photo: Photo, var similar: Int = 0)
+    /**
+     * A photo in the rotation, plus how many similar (lower scoring) photos it stands in for.
+     * [onThisDay]: added as an "on this day" extra (it isn't in the top N itself).
+     */
+    class Entry(val photo: Photo, var similar: Int = 0, val onThisDay: Boolean = false)
 
     class Result(
         val entries: List<Entry>,
@@ -51,7 +54,23 @@ object PoolBuilder {
             val match = if (rule == null) null else kept.firstOrNull { similar(it.photo, photo, rule) }
             if (match != null) match.similar++ else kept += Entry(photo)
         }
-        return Result(kept.take(prefs.poolSize), qualifying = all.size, unique = kept.size, allUnique = kept.map { it.photo })
+        val top = kept.take(prefs.poolSize)
+
+        // On this day: the best photos from around this date in earlier years join the rotation,
+        // at most a share of the top N, without priority (they're picked like any other photo).
+        val extras = if (prefs.onThisDay && prefs.onThisDayShare > 0f) {
+            val now = System.currentTimeMillis()
+            val inTop = top.map { it.photo.id }.toHashSet()
+            val limit = kotlin.math.round(prefs.poolSize * prefs.onThisDayShare).toInt()
+            kept.asSequence()
+                .filter { it.photo.id !in inTop && it.photo.dateTaken > 0 }
+                .filter { OnThisDay.match(it.photo.dateTaken, now, prefs.onThisDayDays) != null }
+                .take(limit) // kept is best first
+                .map { Entry(it.photo, it.similar, onThisDay = true) }
+                .toList()
+        } else emptyList()
+
+        return Result(top + extras, qualifying = all.size, unique = kept.size, allUnique = kept.map { it.photo })
     }
 
     private fun similar(a: Photo, b: Photo, rule: Rule): Boolean {

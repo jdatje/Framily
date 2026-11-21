@@ -56,7 +56,7 @@ Optional: current weather ("⛅ 18°") and a strip with the next 4 hours (time, 
 - **Rain alert** line ("🌧 Rain from 17:00" / "🌤 Dry from 18:00").
 - **Tap the weather** to open your weather app (Pixel Weather by default, or pick one).
 - **Caption** with month/year and place from the photo's GPS ("June 2021 · Texel"); draggable.
-- **On this day:** photos from this date in earlier years go first ("7 years ago today").
+- **On this day:** the best photos from around this date in earlier years (window ±1–14 days, default 7) are added to the rotation, up to a share of your top N (default 20%). They don't jump the queue. Caption: "7 years ago this week".
 - **Lock screen** can show a different photo than the home screen.
 
 Settings are grouped on pages (Photos & rotation, Clock, Weather, Readability, Extras, Scanning); look pages have a pinned live preview.
@@ -75,6 +75,13 @@ The first scan of a large library takes a while, so it is careful with the batte
 - The Scanning page says why a scan is waiting (charger, battery level, or when it retries).
 - A quick, cheap face check runs first; the precise (heavier) one only for photos that actually have faces.
 - Stop it anytime from the app or the scan notification. It always continues where it left off.
+
+## Ratings
+
+- **👍 Like:** +15 on the score and shown about 1.5× as often.
+- **👎 Dislike:** −30 on the score (usually out of the top N) and on to the next photo.
+- **Never show / Not family:** removed from the rotation (restorable).
+- Notification buttons: 👍 · 👎 · Never show. In the app: the same plus Not family, on the home and lock screen photo (swipe the top card) and on any photo in "In the rotation". Tap an active 👍/👎 to undo it.
 
 ## Feedback
 

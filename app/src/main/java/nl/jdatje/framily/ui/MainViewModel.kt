@@ -82,6 +82,8 @@ data class UiState(
     val unique: Int = 0,
     val pool: List<PoolBuilder.Entry> = emptyList(),
     val current: Photo? = null,
+    /** The lock screen photo, when it differs from the home screen photo. */
+    val lockPhoto: Photo? = null,
     val blocked: Int = 0,
     val interval: Int = 120,
     val poolSize: Int = 40,
@@ -106,6 +108,8 @@ data class UiState(
     val look: LookStyle? = null,
     val weatherAppLabel: String = "",
     val onThisDay: Boolean = false,
+    val onThisDayDays: Int = 7,
+    val onThisDayShare: Float = 0.2f,
     val lockDifferent: Boolean = false,
     val hasMediaLocation: Boolean = false,
     val familyCount: Int = 0,
@@ -248,6 +252,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 unique = result.unique,
                 pool = result.entries,
                 current = current,
+                lockPhoto = if (prefs.lockScreenEnabled && prefs.lockDifferent) {
+                    prefs.lockPhotoId.takeIf { it >= 0 && it != prefs.currentPhotoId }?.let { db.get(it) }
+                } else null,
                 blocked = db.blockedCount(),
                 interval = prefs.intervalMinutes,
                 poolSize = prefs.poolSize,
@@ -270,6 +277,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 look = LookStyle.from(prefs),
                 weatherAppLabel = WeatherApps.label(ctx, prefs.weatherApp),
                 onThisDay = prefs.onThisDay,
+                onThisDayDays = prefs.onThisDayDays,
+                onThisDayShare = prefs.onThisDayShare,
                 lockDifferent = prefs.lockDifferent,
                 hasMediaLocation = ContextCompat.checkSelfPermission(ctx, Manifest.permission.ACCESS_MEDIA_LOCATION) ==
                     PackageManager.PERMISSION_GRANTED,
@@ -359,6 +368,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun setNightDimStrength(v: Float) { prefs.nightDimStrength = v }
     fun setRainAlert(on: Boolean) { prefs.rainAlert = on }
     fun setOnThisDay(on: Boolean) { prefs.onThisDay = on }
+    fun setOnThisDayDays(d: Int) { prefs.onThisDayDays = d }
+    fun setOnThisDayShare(v: Float) { prefs.onThisDayShare = v }
     fun setLockDifferent(on: Boolean) {
         prefs.lockDifferent = on
         if (prefs.lockScreenEnabled) next()
@@ -566,12 +577,32 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun showNow(photo: Photo) = viewModelScope.launch { Rotator.show(ctx, photo) }
 
     /** "Not family" / "Never show": removes the photo, and moves on if it was on screen. */
+    /**
+     * A button for a photo: on the home screen, on the lock screen, or anywhere in the rotation.
+     * 👍/👎/undo only change the rating; removing a photo that is on screen moves on to the next one.
+     */
     fun feedback(photo: Photo, action: String) = viewModelScope.launch(Dispatchers.IO) {
-        if (photo.id == prefs.currentPhotoId) {
-            Feedback.handle(ctx, action, photo.id)
-        } else {
-            db.block(photo.id, action)
+        val onLock = prefs.lockScreenEnabled && prefs.lockDifferent && photo.id == prefs.lockPhotoId
+        when {
+            photo.id == prefs.currentPhotoId -> Feedback.handle(ctx, action, photo.id)
+            onLock -> Feedback.handle(ctx, action, photo.id, lock = true)
+            else -> when (action) {
+                Feedback.LIKE -> db.setRating(photo.id, 1)
+                Feedback.DISLIKE -> db.setRating(photo.id, -1)
+                Feedback.UNRATE -> db.setRating(photo.id, 0)
+                Feedback.NOT_FAMILY -> {
+                    db.block(photo.id, Feedback.NOT_FAMILY)
+                    FamilyIndex.markPhotoNotFamily(ctx, photo.id)
+                    FamilyIndex.rematch(ctx)
+                }
+                Feedback.NEVER -> db.block(photo.id, Feedback.NEVER)
+            }
         }
+        refreshData()
+    }
+
+    fun nextLock() = viewModelScope.launch {
+        Rotator.nextLock(ctx)
         refreshData()
     }
 

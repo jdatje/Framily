@@ -10,6 +10,7 @@ import android.content.Intent
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import nl.jdatje.framily.data.Photo
+import nl.jdatje.framily.data.Prefs
 import nl.jdatje.framily.feedback.Feedback
 import nl.jdatje.framily.feedback.FeedbackReceiver
 import nl.jdatje.framily.ui.MainActivity
@@ -57,14 +58,17 @@ object Notifications {
         val n = NotificationCompat.Builder(context, CH_WALLPAPER)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle("Current wallpaper")
-            .setContentText("Score ${photo.score.roundToInt()} · ${photo.bucketName}")
+            .setContentText(
+                (if (photo.rating > 0) "👍 " else "") + "Score ${photo.score.roundToInt()} · ${photo.bucketName}" +
+                    if (Prefs.get(context).lockScreenEnabled && Prefs.get(context).lockDifferent) " · home screen" else ""
+            )
             .setLargeIcon(thumb)
             .setContentIntent(openAppIntent(context))
             .setSilent(true)
             .setOnlyAlertOnce(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
-            .addAction(0, "Skip", actionIntent(context, Feedback.SKIP, photo.id, 10))
-            .addAction(0, "Not family", actionIntent(context, Feedback.NOT_FAMILY, photo.id, 11))
+            .addAction(0, if (photo.rating > 0) "👍 Liked" else "👍 Like", actionIntent(context, Feedback.LIKE, photo.id, 10))
+            .addAction(0, "👎 Dislike", actionIntent(context, Feedback.DISLIKE, photo.id, 11))
             .addAction(0, "Never show", actionIntent(context, Feedback.NEVER, photo.id, 12))
             .build()
         NotificationManagerCompat.from(context).notify(ID_CURRENT, n)

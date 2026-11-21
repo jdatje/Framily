@@ -238,6 +238,21 @@ class Prefs private constructor(context: Context) {
         get() = sp.getBoolean(ON_THIS_DAY, false)
         set(v) = sp.edit { putBoolean(ON_THIS_DAY, v) }
     /** Lock screen gets a different photo than the home screen. */
+    /** On this day: how many days before/after the date count. */
+    var onThisDayDays: Int
+        get() = sp.getInt(ON_THIS_DAY_DAYS, 7)
+        set(v) = sp.edit { putInt(ON_THIS_DAY_DAYS, v) }
+
+    /** On this day: at most this share of the top N is added to the rotation. */
+    var onThisDayShare: Float
+        get() = sp.getFloat(ON_THIS_DAY_SHARE, 0.2f)
+        set(v) = sp.edit { putFloat(ON_THIS_DAY_SHARE, v) }
+
+    /** The photo on the lock screen right now (when it differs from the home screen). */
+    var lockPhotoId: Long
+        get() = sp.getLong(LOCK_PHOTO, -1L)
+        set(v) = sp.edit { putLong(LOCK_PHOTO, v) }
+
     var lockDifferent: Boolean
         get() = sp.getBoolean(LOCK_DIFFERENT, false)
         set(v) = sp.edit { putBoolean(LOCK_DIFFERENT, v) }
@@ -334,6 +349,9 @@ class Prefs private constructor(context: Context) {
         const val CAPTION_TEXT = "caption_text"
         const val ON_THIS_DAY = "on_this_day"
         const val LOCK_DIFFERENT = "lock_different"
+        const val ON_THIS_DAY_DAYS = "on_this_day_days"
+        const val ON_THIS_DAY_SHARE = "on_this_day_share"
+        const val LOCK_PHOTO = "lock_photo"
         const val WEATHER_SOURCE = "weather_source"
         const val WEATHER_LAT = "weather_lat"
         const val WEATHER_LON = "weather_lon"

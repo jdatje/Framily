@@ -369,8 +369,16 @@ fun LazyListScope.extrasPage(s: UiState, vm: MainViewModel, actions: MainActions
     }
     item {
         SectionCard("Rotation") {
-            SwitchRow("On this day", "Photos from this date in earlier years go first (\"7 years ago today\")", s.onThisDay) {
+            SwitchRow("On this day", "Photos from around this date in earlier years join the rotation", s.onThisDay) {
                 vm.setOnThisDay(it)
+            }
+            if (s.onThisDay) {
+                Label("Window: ${s.onThisDayDays} day(s) before and after")
+                LiveSlider(s.onThisDayDays.toFloat(), 1f..14f, steps = 12) { vm.setOnThisDayDays(it.roundToInt()) }
+                val extra = kotlin.math.round(s.poolSize * s.onThisDayShare).toInt()
+                Label("Up to ${(s.onThisDayShare * 100).roundToInt()}% extra: $extra photos on top of your best ${s.poolSize}")
+                LiveSlider(s.onThisDayShare, 0f..0.5f, steps = 9) { vm.setOnThisDayShare(it) }
+                Hint("The best ones from around this date are added and come by like any other photo, with a caption like \"7 years ago this week\".")
             }
             SwitchRow("Double-tap home screen", "Shows the next photo", s.doubleTap) { vm.setDoubleTap(it) }
         }
